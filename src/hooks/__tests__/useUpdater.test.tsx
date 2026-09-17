@@ -30,6 +30,39 @@ beforeEach(() => vi.clearAllMocks());
 afterEach(cleanup);
 
 describe("useUpdater configuration gate", () => {
+  it("waits for saved settings and skips auto-check when they are off", async () => {
+    const configured = {
+      ...configuration,
+      effectiveEndpoint: "https://example.com/latest.json",
+    };
+    vi.mocked(loadUpdateConfiguration).mockResolvedValue(configured);
+    vi.mocked(checkForUpdate).mockResolvedValue({
+      configuration: configured,
+      update: null,
+    });
+    const { result, rerender } = renderHook(
+      ({ payload }: { payload: SettingsPayload | null }) =>
+        useUpdater(true, payload),
+      { initialProps: { payload: null as SettingsPayload | null } },
+    );
+    await waitFor(() =>
+      expect(result.current.updateConfiguration).toEqual(configured),
+    );
+    expect(checkForUpdate).not.toHaveBeenCalled();
+    rerender({
+      payload: {
+        ...settings,
+        settings: { ...settings.settings, autoCheckForUpdates: false },
+      },
+    });
+    await act(async () => Promise.resolve());
+    expect(checkForUpdate).not.toHaveBeenCalled();
+    rerender({ payload: settings });
+    await waitFor(() => expect(checkForUpdate).toHaveBeenCalledTimes(1));
+    rerender({ payload: { ...settings } });
+    expect(checkForUpdate).toHaveBeenCalledTimes(1);
+  });
+
   it("skips automatic and manual update operations on an unconfigured build", async () => {
     vi.mocked(loadUpdateConfiguration).mockResolvedValue(configuration);
     const { result } = renderHook(() => useUpdater(true, settings));

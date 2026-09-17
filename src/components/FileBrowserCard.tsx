@@ -1,3 +1,4 @@
+import { t, useLocale } from "../lib/i18n";
 import { useDebugPanelFixtures } from "../hooks/useDebugPanelFixtures";
 import { formatFileKindLabel } from "../lib/fileKindLabel";
 import { useFileStore } from "../stores/fileStore";
@@ -13,6 +14,7 @@ export function FileBrowserCard({
   onOpenPath,
   debugPanelsEnabled = false,
 }: FileBrowserCardProps) {
+  useLocale();
   const storeCurrentFile = useFileStore((state) => state.currentFile);
   const storeDirectoryListing = useFileStore((state) => state.directoryListing);
   const { debugFixtures, useDebugFixtures } =
@@ -43,7 +45,7 @@ export function FileBrowserCard({
 
   return (
     <SidebarSection
-      title="Browse"
+      title={t("browse")}
       count={
         currentDirectory
           ? currentDirectory.split(/[\\/]/).filter(Boolean).slice(-1)[0]
@@ -53,12 +55,12 @@ export function FileBrowserCard({
       {currentDirectory ? (
         <p className="sidebar-path">{currentDirectory}</p>
       ) : (
-        <SidebarEmpty>No folder selected.</SidebarEmpty>
+        <SidebarEmpty>{t("no_folder_selected")}</SidebarEmpty>
       )}
       {files.length > 0 ? (
         <FileItemList items={fileItems} />
       ) : currentDirectory ? (
-        <SidebarEmpty>No supported siblings found.</SidebarEmpty>
+        <SidebarEmpty>{t("no_supported_siblings_found")}</SidebarEmpty>
       ) : null}
     </SidebarSection>
   );

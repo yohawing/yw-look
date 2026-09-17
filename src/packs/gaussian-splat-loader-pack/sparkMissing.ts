@@ -1,3 +1,5 @@
+import "./locales";
+import { LocalizedError } from "../../lib/localizedMessage";
 /**
  * Runtime shim for `@sparkjsdev/spark` used when the optional Gaussian Splat
  * Loader Pack is not installed. Vite aliases the bare `@sparkjsdev/spark`
@@ -7,7 +9,8 @@
  */
 
 function missingSparkLoader(): never {
-  throw new Error(
+  throw new LocalizedError(
+    "gaussian-splat-loader-pack:unavailable",
     "Gaussian Splat Loader Pack (@sparkjsdev/spark) is not installed. Install it to enable Gaussian Splat (.ply/.splat/.spz/.ksplat/.sog) preview.",
   );
 }

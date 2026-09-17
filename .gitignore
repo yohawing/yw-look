@@ -35,7 +35,6 @@ debug.log
 
 # Local development notes.
 **/*.md
-!docs/images/
 !README.md
 !THIRD_PARTY_NOTICES.md
 !LICENCE.md

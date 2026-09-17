@@ -955,7 +955,10 @@ fn is_material_x_shader_id(id: &str) -> bool {
     id.starts_with("ND_") || id.starts_with("MaterialX")
 }
 
-pub(super) fn read_asset_details(stage: &Stage, path: sdf::Path) -> Option<(String, Option<String>)> {
+pub(super) fn read_asset_details(
+    stage: &Stage,
+    path: sdf::Path,
+) -> Option<(String, Option<String>)> {
     let value: Option<Value> = stage.attribute_at(path).get::<Value>().ok().flatten();
     match value? {
         Value::AssetPath(asset) => {

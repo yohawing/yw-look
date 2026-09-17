@@ -1,0 +1,14 @@
+{
+  "ifc_display": "IFC 显示",
+  "color_by": "着色依据",
+  "ifc_color_mode": "IFC 着色模式",
+  "original": "原始",
+  "category": "类别",
+  "element": "元素",
+  "storey": "楼层",
+  "loading_element_information": "正在加载元素信息…",
+  "some_information_was_omitted_because_the_detail_limit_was_reached": "已达到详情上限，部分信息已省略。",
+  "no_values_provided": "未提供值。",
+  "load_failed": "无法加载IFC预览：{{detail}}",
+  "unavailable": "未安装IFC加载器。请安装对应的加载器包。"
+}

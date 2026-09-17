@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -100,7 +100,8 @@ fn vertex_vec4(v: &ufbx::VertexVec4, index: usize) -> Result<ufbx::Vec4, AppErro
 }
 
 fn gltf_uv(uv: ufbx::Vec2) -> Result<[f32; 2], AppError> {
-    Ok([f32v(uv.x)?, f32v(uv.y)?])
+    // FBX uses a bottom-left UV origin; glTF uses the upper-left image pixel.
+    Ok([f32v(uv.x)?, f32v(1.0 - uv.y)?])
 }
 
 fn transform_json(t: ufbx::Transform) -> Result<Value, AppError> {
@@ -270,28 +271,39 @@ fn khr_texture_transform_from_matrix(matrix: ufbx::Matrix) -> Result<Option<Valu
         return Ok(None);
     }
 
-    let sx = (matrix.m00 * matrix.m00 + matrix.m10 * matrix.m10).sqrt();
-    let sy_abs = (matrix.m01 * matrix.m01 + matrix.m11 * matrix.m11).sqrt();
+    // Both the mesh UV and the texture-space coordinate change from a
+    // bottom-left to an upper-left origin: T_gltf = F * T_fbx * F, where
+    // F(u, v) = (u, 1 - v). A UV-only flip would break authored offsets and
+    // rotations even when the untransformed texture looks correct.
+    let m00 = matrix.m00;
+    let m01 = -matrix.m01;
+    let m10 = -matrix.m10;
+    let m11 = matrix.m11;
+    let tx = matrix.m03 + matrix.m01;
+    let ty = 1.0 - matrix.m11 - matrix.m13;
+
+    let sx = (m00 * m00 + m10 * m10).sqrt();
+    let sy_abs = (m01 * m01 + m11 * m11).sqrt();
     if sx <= epsilon || sy_abs <= epsilon {
         return Ok(None);
     }
-    let dot = matrix.m00 * matrix.m01 + matrix.m10 * matrix.m11;
+    let dot = m00 * m01 + m10 * m11;
     let scale = sx.max(sy_abs);
     if dot.abs() > epsilon * scale * scale {
         return Ok(None);
     }
-    let determinant = matrix.m00 * matrix.m11 - matrix.m01 * matrix.m10;
+    let determinant = m00 * m11 - m01 * m10;
     let sy = if determinant < 0.0 { -sy_abs } else { sy_abs };
-    let rotation = matrix.m10.atan2(matrix.m00);
+    let rotation = m10.atan2(m00);
     let sin = rotation.sin();
     let cos = rotation.cos();
     let tolerance = epsilon * scale.max(1.0);
-    if (matrix.m01 - (-sin * sy)).abs() > tolerance || (matrix.m11 - (cos * sy)).abs() > tolerance {
+    if (m01 - (-sin * sy)).abs() > tolerance || (m11 - (cos * sy)).abs() > tolerance {
         return Ok(None);
     }
 
     Ok(Some(json!({
-        "offset": [f32v(matrix.m03)?, f32v(matrix.m13)?],
+        "offset": [f32v(tx)?, f32v(ty)?],
         "scale": [f32v(sx)?, f32v(sy)?],
         "rotation": f32v(rotation)?,
     })))
@@ -465,6 +477,103 @@ fn emission_value(color_map: &ufbx::MaterialMap, factor_map: &ufbx::MaterialMap)
     [color[0] * factor, color[1] * factor, color[2] * factor]
 }
 
+/// Return whether a raw FBX Model explicitly asks for back-face culling to be
+/// disabled. `Culling` is a legacy Model child alongside `Shading`, rather
+/// than a material property, so it is only available through uFBX's retained
+/// DOM.
+/// Keep this opt-in: absent and unknown values must not turn every FBX material
+/// into a double-sided glTF material.
+fn has_explicit_culling_off(node: &ufbx::Node) -> bool {
+    let Some(model) = node.element.dom_node.as_deref() else {
+        return false;
+    };
+    let Some(culling) = model.find("Culling") else {
+        return false;
+    };
+    culling.values.iter().any(|value| {
+        value.type_ == ufbx::DomValueType::String && value.value_str.as_ref() == "CullingOff"
+    })
+}
+
+fn collect_culling_material_ids(
+    usages: impl IntoIterator<Item = (u32, bool)>,
+) -> (HashSet<u32>, HashSet<u32>) {
+    let mut explicit_off = HashSet::new();
+    let mut other_culling = HashSet::new();
+    for (material_id, is_explicit_off) in usages {
+        if is_explicit_off {
+            explicit_off.insert(material_id);
+        } else {
+            other_culling.insert(material_id);
+        }
+    }
+    let mixed = explicit_off.intersection(&other_culling).copied().collect();
+    (explicit_off, mixed)
+}
+
+fn culling_usages_for_matching_slots(
+    node_material_ids: &[u32],
+    mesh_material_ids: &[u32],
+    is_explicit_off: bool,
+) -> Option<Vec<(u32, bool)>> {
+    if node_material_ids != mesh_material_ids {
+        return None;
+    }
+    Some(
+        mesh_material_ids
+            .iter()
+            .copied()
+            .map(|material_id| (material_id, is_explicit_off))
+            .collect(),
+    )
+}
+
+fn culling_material_ids(scene: &ufbx::Scene) -> (HashSet<u32>, HashSet<u32>, Vec<String>) {
+    let mut usages = Vec::new();
+    let mut slot_mismatch_warnings = Vec::new();
+    for node in &scene.nodes {
+        let Some(mesh) = node.mesh.as_deref() else {
+            continue;
+        };
+        let node_material_ids: Vec<u32> = node
+            .materials
+            .iter()
+            .map(|material| material.element.typed_id)
+            .collect();
+        let mesh_material_ids: Vec<u32> = mesh
+            .materials
+            .iter()
+            .map(|material| material.element.typed_id)
+            .collect();
+        let is_explicit_off = has_explicit_culling_off(node);
+        let Some(matching_usages) = culling_usages_for_matching_slots(
+            &node_material_ids,
+            &mesh_material_ids,
+            is_explicit_off,
+        ) else {
+            slot_mismatch_warnings.push(format!(
+                "FBX node '{}' culling propagation skipped: node.materials slots {:?} differ from mesh '{}' materials {:?}",
+                node.element.name,
+                node_material_ids,
+                mesh.element.name,
+                mesh_material_ids,
+            ));
+            continue;
+        };
+        usages.extend(matching_usages);
+    }
+    let (explicit_off, mixed) = collect_culling_material_ids(usages);
+    (explicit_off, mixed, slot_mismatch_warnings)
+}
+
+fn material_double_sided(
+    material_default: bool,
+    explicit_culling_off: bool,
+    mixed_culling: bool,
+) -> bool {
+    material_default || (explicit_culling_off && !mixed_culling)
+}
+
 fn canonical_uv_indices(
     entries: impl IntoIterator<Item = (String, u32)>,
 ) -> (HashMap<String, u32>, Vec<String>) {
@@ -500,11 +609,43 @@ fn collect_uv_indices(scene: &ufbx::Scene) -> (HashMap<String, u32>, Vec<String>
     }))
 }
 
+// Blender can author only a TransparencyFactor texture connection, without a
+// scalar property. ufbx 0.11 then leaves pbr.opacity empty. When it uses the
+// same image and sampler as base color, glTF can use that image's alpha directly.
+fn blender_base_color_alpha(
+    material: &ufbx::Material,
+    creator: &str,
+    uv_indices: &HashMap<String, u32>,
+) -> Result<bool, AppError> {
+    if !creator.starts_with("Blender (stable FBX IO)")
+        || !matches!(
+            material.shader_type,
+            ufbx::ShaderType::FbxPhong | ufbx::ShaderType::BlenderPhong
+        )
+    {
+        return Ok(false);
+    }
+    let (Some(base), Some(alpha)) = (
+        material.pbr.base_color.texture.as_deref(),
+        material.fbx.transparency_factor.texture.as_deref(),
+    ) else {
+        return Ok(false);
+    };
+    Ok(base.has_file
+        && alpha.has_file
+        && base.file_index == alpha.file_index
+        && base.wrap_u == alpha.wrap_u
+        && base.wrap_v == alpha.wrap_v
+        && texture_uv_metadata(base, uv_indices)? == texture_uv_metadata(alpha, uv_indices)?)
+}
+
 fn add_materials(
     doc: &mut GlbDocument,
     scene: &ufbx::Scene,
     cancel: &AtomicBool,
     uv_indices: &HashMap<String, u32>,
+    culling_off_material_ids: &HashSet<u32>,
+    mixed_culling_material_ids: &HashSet<u32>,
 ) -> Result<(HashMap<u32, usize>, Vec<Value>, Vec<String>), AppError> {
     let mut texture_cache = HashMap::<u32, usize>::new();
     let mut sampler_cache = HashMap::<(u32, u32), usize>::new();
@@ -516,6 +657,14 @@ fn add_materials(
         let material_id = material.element.typed_id;
         let material_index = doc.materials.len();
         let material_name = material.element.name.to_string();
+        let explicit_culling_off = culling_off_material_ids.contains(&material_id);
+        let mixed_culling = mixed_culling_material_ids.contains(&material_id);
+        if mixed_culling {
+            warnings.push(format!(
+                "FBX material '{}' is used by Models with explicit CullingOff and other culling settings; keeping the normalized double-sided flag",
+                material_name
+            ));
+        }
         let base = map_value(&material.pbr.base_color, [1.0, 1.0, 1.0, 1.0]);
         let factor = scalar_map_value(&material.pbr.base_factor, 1.0);
         // ufbx leaves unauthored unified PBR opacity at zero with has_value=false.
@@ -543,6 +692,9 @@ fn add_materials(
             "fbxMaterialId": material_id,
             "fbxMaterialIndex": material_index,
             "fbxOpacityAuthored": material.pbr.opacity.has_value,
+            "fbxCullingOffAuthored": explicit_culling_off,
+            "fbxCullingMixed": mixed_culling,
+            "fbxCullingOffApplied": explicit_culling_off && !mixed_culling,
         });
         if let Some(texture) = material.pbr.base_color.texture.as_deref() {
             let index = texture_index(doc, &mut texture_cache, &mut sampler_cache, texture)?;
@@ -557,11 +709,18 @@ fn add_materials(
                 &uv_indices,
             )?);
         }
-        let opacity_texture = material.pbr.opacity.texture.as_deref();
+        let base_color_alpha =
+            blender_base_color_alpha(material, &scene.metadata.creator, uv_indices)?;
+        let opacity_texture = material
+            .pbr
+            .opacity
+            .texture
+            .as_deref()
+            .filter(|_| !base_color_alpha);
         // ufbx's unified PBR contract does not expose an authored cutout
         // mode. Keep opacity textures in the safe continuous-alpha path;
         // MASK is reserved for a future explicit source-format signal.
-        let opacity_mode = opacity_texture.map(|_| "BLEND");
+        let opacity_mode = (base_color_alpha || opacity_texture.is_some()).then_some("BLEND");
         if let Some(texture) = opacity_texture {
             let index = texture_index(doc, &mut texture_cache, &mut sampler_cache, texture)?;
             // glTF has no separate alphaMap slot. Referencing the opacity image
@@ -586,11 +745,15 @@ fn add_materials(
             "name": material_name,
             "pbrMetallicRoughness": pbr,
             "emissiveFactor": [f32v(emissive[0])?, f32v(emissive[1])?, f32v(emissive[2])?],
-            "doubleSided": material.features.double_sided.enabled,
+            "doubleSided": material_double_sided(
+                material.features.double_sided.enabled,
+                explicit_culling_off,
+                mixed_culling,
+            ),
             "alphaMode": alpha_mode,
             "extras": material_extras
         });
-        if let Some(texture) = material.pbr.opacity.texture.as_deref() {
+        if let Some(texture) = opacity_texture {
             value["occlusionTexture"] = texture_info(
                 texture_index(doc, &mut texture_cache, &mut sampler_cache, texture)?,
                 texture,
@@ -767,9 +930,9 @@ fn primitive_data(
             };
             let pf = [f32v(p.x)?, f32v(p.y)?, f32v(p.z)?];
             let nf = [f32v(n.x)?, f32v(n.y)?, f32v(n.z)?];
-            // ufbx exposes FBX UVs in the source convention expected by the
-            // decoded image. GLB textures are emitted with flipY=false, so an
-            // additional V inversion here would turn the material upside down.
+            // ufbx exposes the authored bottom-left FBX UVs. GLB images use
+            // the upper-left origin (flipY=false in GLTFLoader), so convert
+            // every exported UV set to glTF's image-space convention.
             let uvf = uv_values
                 .iter()
                 .map(|uv| gltf_uv(*uv))
@@ -890,6 +1053,10 @@ fn add_skin(
         };
         cluster_map.insert(cluster_index as u32, joints.len());
         joints.push(node);
+        // glTF evaluates a rest vertex as `joint_world * inverse_bind * position`.
+        // The product must reproduce the mesh node's bind-world transform,
+        // including non-identity axis conversion and placement. uFBX exposes
+        // exactly that geometry-space-to-bone mapping here.
         matrices.extend(matrix_values(cluster.geometry_to_bone)?);
     }
     if joints.is_empty() {
@@ -1226,6 +1393,11 @@ fn native_load_options<'a>(
     ufbx::LoadOpts {
         target_axes: ufbx::CoordinateAxes::right_handed_y_up(),
         target_unit_meters: 1.0,
+        // glTF POSITION data is local to the node carrying the mesh. Baking
+        // FBX geometry transforms here keeps that contract without coupling a
+        // shared skin to any one mesh instance. ufbx falls back to helper
+        // nodes for instancing cases that cannot be baked safely.
+        geometry_transform_handling: ufbx::GeometryTransformHandling::ModifyGeometry,
         // Three.js applies a mounted node's transform after skinning. A
         // conversion root would therefore scale skinned vertices twice. The
         // geometry-space variant is selected for skinned scenes below; the
@@ -1239,6 +1411,10 @@ fn native_load_options<'a>(
         clean_skin_weights: true,
         use_blender_pbr_material: true,
         force_single_thread_ascii_parsing: true,
+        // The legacy Model-level `Shading/Culling` child is not surfaced in
+        // uFBX's normalized material features. Retain the DOM so explicit
+        // `CullingOff` can be propagated to only the materials on that Model.
+        retain_dom: true,
         progress_cb,
         progress_interval_hint: 64 * 1024,
         temp_allocator: ufbx::AllocatorOpts {
@@ -1325,8 +1501,16 @@ pub(crate) fn convert(path: &Path, cancel: Arc<AtomicBool>) -> Result<Vec<u8>, A
 fn build_scene(scene: &ufbx::Scene, cancel: &AtomicBool) -> Result<Vec<u8>, AppError> {
     let mut doc = GlbDocument::default();
     let (uv_indices, uv_warnings) = collect_uv_indices(scene);
-    let (material_map, texture_bindings, material_warnings) =
-        add_materials(&mut doc, scene, cancel, &uv_indices)?;
+    let (culling_off_material_ids, mixed_culling_material_ids, culling_slot_mismatch_warnings) =
+        culling_material_ids(scene);
+    let (material_map, texture_bindings, material_warnings) = add_materials(
+        &mut doc,
+        scene,
+        cancel,
+        &uv_indices,
+        &culling_off_material_ids,
+        &mixed_culling_material_ids,
+    )?;
     let mut warnings: Vec<String> = scene
         .metadata
         .warnings
@@ -1335,6 +1519,7 @@ fn build_scene(scene: &ufbx::Scene, cancel: &AtomicBool) -> Result<Vec<u8>, AppE
         .collect();
     warnings.extend(material_warnings);
     warnings.extend(uv_warnings);
+    warnings.extend(culling_slot_mismatch_warnings.iter().cloned());
     let mut gltf_lights = Vec::new();
     let mut node_map = HashMap::new();
     for node in &scene.nodes {
@@ -1344,6 +1529,7 @@ fn build_scene(scene: &ufbx::Scene, cancel: &AtomicBool) -> Result<Vec<u8>, AppE
         value["extras"] = json!({
             "visible": node.visible,
             "fbxBone": node.bone.is_some(),
+            "fbxMesh": node.mesh.is_some(),
         });
         if let Some(camera) = node.camera.as_deref() {
             let camera_index = doc.cameras.len();
@@ -1547,11 +1733,15 @@ fn build_scene(scene: &ufbx::Scene, cancel: &AtomicBool) -> Result<Vec<u8>, AppE
         cancel,
     )?;
     let source_stats = json!({"nodes":scene.nodes.len(),"meshes":scene.meshes.len(),"materials":scene.materials.len(),"skins":scene.skin_deformers.len(),"blendChannels":scene.blend_channels.len(),"animationStacks":scene.anim_stacks.len(),"cameras":scene.cameras.len(),"lights":scene.lights.len(),"textures":scene.textures.len()});
-    doc.scenes.push(json!({"nodes":roots,"extras":{"fbxWarnings":warnings.clone(),"fbxSourceStats":source_stats.clone(),"fbxTextureBindings":texture_bindings.clone()}}));
+    doc.scenes.push(json!({"nodes":roots,"extras":{"fbxWarnings":warnings.clone(),"fbxSourceStats":source_stats.clone(),"fbxTextureBindings":texture_bindings.clone(),"fbxCullingSlotMismatches":culling_slot_mismatch_warnings.clone()}}));
     doc.extras.insert("fbxWarnings".into(), json!(warnings));
     doc.extras.insert("fbxSourceStats".into(), source_stats);
     doc.extras
         .insert("fbxTextureBindings".into(), json!(texture_bindings));
+    doc.extras.insert(
+        "fbxCullingSlotMismatches".into(),
+        json!(culling_slot_mismatch_warnings),
+    );
     doc.finish()
 }
 
@@ -1559,6 +1749,73 @@ fn build_scene(scene: &ufbx::Scene, cancel: &AtomicBool) -> Result<Vec<u8>, AppE
 mod tests {
     use super::*;
     use crate::preview::glb::FLOAT;
+
+    #[test]
+    fn blender_texture_only_alpha_uses_base_color_alpha() {
+        let source = r#"
+; FBX 7.4.0 project file
+FBXHeaderExtension: {
+    FBXHeaderVersion: 1003
+    FBXVersion: 7400
+    Creator: "Blender (stable FBX IO) - 4.0.0 - 5.0.0"
+}
+Objects: {
+    Material: 1, "Material::Highlight", "" {
+        ShadingModel: "Phong"
+        Properties70: {
+            P: "DiffuseColor", "Color", "", "A", 1, 1, 1
+        }
+    }
+    Texture: 2, "Texture::Base", "" {
+        Type: "TextureVideoClip"
+        FileName: "eye.png"
+        RelativeFilename: "eye.png"
+    }
+    Texture: 3, "Texture::Alpha", "" {
+        Type: "TextureVideoClip"
+        FileName: "eye.png"
+        RelativeFilename: "eye.png"
+    }
+}
+Connections: {
+    C: "OP", 2, 1, "DiffuseColor"
+    C: "OP", 3, 1, "TransparencyFactor"
+}
+"#;
+        for (source, expected) in [
+            (source.to_owned(), "BLEND"),
+            (
+                source.replace("Blender (stable FBX IO)", "Other exporter"),
+                "OPAQUE",
+            ),
+            (source.replacen("eye.png", "other.png", 2), "OPAQUE"),
+            (
+                source.replace("C: \"OP\", 3, 1, \"TransparencyFactor\"", ""),
+                "OPAQUE",
+            ),
+        ] {
+            let scene = ufbx::load_memory(source.as_bytes(), Default::default()).unwrap();
+            let mut doc = GlbDocument::default();
+            add_materials(
+                &mut doc,
+                &scene,
+                &AtomicBool::new(false),
+                &HashMap::new(),
+                &HashSet::new(),
+                &HashSet::new(),
+            )
+            .unwrap();
+            assert_eq!(doc.materials[0]["alphaMode"], expected);
+            assert_eq!(
+                doc.materials[0]["pbrMetallicRoughness"]["baseColorFactor"][3],
+                1.0
+            );
+            assert!(
+                doc.materials[0].get("occlusionTexture").is_none(),
+                "must not multiply alpha by image RGB"
+            );
+        }
+    }
 
     #[test]
     fn deferred_texture_placeholder_decodes_as_opaque_white() {
@@ -1660,11 +1917,13 @@ mod tests {
     }
 
     #[test]
-    fn native_fbx_uv_is_not_inverted_twice() {
+    fn native_fbx_uv_uses_gltf_top_left_origin() {
         assert_eq!(
             gltf_uv(ufbx::Vec2 { x: 0.25, y: 0.75 }).unwrap(),
-            [0.25, 0.75]
+            [0.25, 0.25]
         );
+        assert_eq!(gltf_uv(ufbx::Vec2 { x: 0.0, y: 0.0 }).unwrap(), [0.0, 1.0]);
+        assert_eq!(gltf_uv(ufbx::Vec2 { x: 1.0, y: 1.0 }).unwrap(), [1.0, 0.0]);
     }
 
     #[test]
@@ -1686,9 +1945,47 @@ mod tests {
         let transform = khr_texture_transform_from_matrix(matrix)
             .unwrap()
             .expect("2D UV-to-texture matrix is representable");
-        assert_eq!(transform["offset"], json!([0.25, -0.5]));
+        assert_eq!(transform["offset"], json!([0.25, -1.5]));
         assert_eq!(transform["scale"], json!([2.0, 3.0]));
         assert_eq!(transform["rotation"], json!(0.0));
+    }
+
+    #[test]
+    fn khr_texture_transform_preserves_rotated_fbx_sampling_after_uv_flip() {
+        let matrix = ufbx::Matrix {
+            m00: 0.0,
+            m10: 2.0,
+            m20: 0.0,
+            m01: -3.0,
+            m11: 0.0,
+            m21: 0.0,
+            m02: 0.0,
+            m12: 0.0,
+            m22: 1.0,
+            m03: 0.25,
+            m13: 0.4,
+            m23: 0.0,
+        };
+        let transform = khr_texture_transform_from_matrix(matrix)
+            .unwrap()
+            .expect("rotated UV-to-texture matrix is representable");
+        let source_uv = ufbx::Vec2 { x: 0.2, y: 0.7 };
+        let gltf_input = gltf_uv(source_uv).unwrap();
+        let gltf_output = [
+            matrix.m00 * source_uv.x + matrix.m01 * source_uv.y + matrix.m03,
+            1.0 - (matrix.m10 * source_uv.x + matrix.m11 * source_uv.y + matrix.m13),
+        ];
+        let offset = transform["offset"].as_array().unwrap();
+        let scale = transform["scale"].as_array().unwrap();
+        let angle = transform["rotation"].as_f64().unwrap();
+        let su = scale[0].as_f64().unwrap() * f64::from(gltf_input[0]);
+        let sv = scale[1].as_f64().unwrap() * f64::from(gltf_input[1]);
+        let sampled = [
+            angle.cos() * su - angle.sin() * sv + offset[0].as_f64().unwrap(),
+            angle.sin() * su + angle.cos() * sv + offset[1].as_f64().unwrap(),
+        ];
+        assert!((sampled[0] - gltf_output[0]).abs() < 1e-6);
+        assert!((sampled[1] - gltf_output[1]).abs() < 1e-6);
     }
 
     #[test]
@@ -1721,6 +2018,42 @@ mod tests {
         assert_eq!(indices["Other"], 1);
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("UVMap"));
+    }
+
+    #[test]
+    fn material_double_sided_requires_authored_culling_or_existing_flag() {
+        assert!(!material_double_sided(false, false, false));
+        assert!(material_double_sided(false, true, false));
+        assert!(material_double_sided(true, false, false));
+    }
+
+    #[test]
+    fn mixed_culling_materials_fail_closed_in_synthetic_usage() {
+        let (explicit_off, mixed) =
+            collect_culling_material_ids([(11, true), (11, false), (12, true), (13, false)]);
+        assert!(explicit_off.contains(&11));
+        assert!(explicit_off.contains(&12));
+        assert!(mixed.contains(&11));
+        assert!(!mixed.contains(&12));
+        assert!(!mixed.contains(&13));
+        assert!(!material_double_sided(false, true, true));
+        assert!(material_double_sided(false, true, false));
+    }
+
+    #[test]
+    fn culling_skips_per_instance_material_slot_overrides() {
+        assert_eq!(
+            culling_usages_for_matching_slots(&[11, 12], &[11, 12], true),
+            Some(vec![(11, true), (12, true)])
+        );
+        assert_eq!(
+            culling_usages_for_matching_slots(&[11, 12], &[11, 13], true),
+            None
+        );
+        assert_eq!(
+            culling_usages_for_matching_slots(&[11], &[11, 12], false),
+            None
+        );
     }
 
     #[test]
@@ -1808,6 +2141,15 @@ mod tests {
             space_conversion_for_scene(false),
             ufbx::SpaceConversion::TransformRoot
         );
+        let mut progress = |_: &ufbx::Progress| ufbx::ProgressResult::Continue;
+        let opts = native_load_options(
+            ufbx::ProgressCb::Mut(&mut progress),
+            space_conversion_for_scene(true),
+        );
+        assert_eq!(
+            opts.geometry_transform_handling,
+            ufbx::GeometryTransformHandling::ModifyGeometry
+        );
     }
 
     fn fixture_glb(name: &str) -> (Value, Vec<u8>) {
@@ -1840,6 +2182,7 @@ mod tests {
         let components = match accessor["type"].as_str().unwrap() {
             "SCALAR" => 1,
             "VEC3" => 3,
+            "MAT4" => 16,
             _ => panic!("unexpected fixture accessor type"),
         };
         let byte_len = count * components * std::mem::size_of::<f32>();
@@ -1933,7 +2276,17 @@ mod tests {
     }
 
     #[test]
-    fn native_fixture_skinned_centimetre_root_uses_geometry_space_contract() {
+    fn native_fixture_propagates_explicit_model_culling_off() {
+        let (document, _) = fixture_glb("animated-triangle.fbx");
+        let material = &document["materials"][0];
+        assert_eq!(material["doubleSided"], true);
+        assert_eq!(material["extras"]["fbxCullingOffAuthored"], true);
+        assert_eq!(material["extras"]["fbxCullingMixed"], false);
+        assert_eq!(material["extras"]["fbxCullingOffApplied"], true);
+    }
+
+    #[test]
+    fn native_fixture_skinned_centimetre_root_uses_gltf_mesh_local_skin_contract() {
         let (document, binary) = fixture_glb("skinned-centimetre-root.fbx");
         let stats = &document["scenes"][0]["extras"]["fbxSourceStats"];
         assert_eq!(stats["skins"], 1);
@@ -1952,11 +2305,12 @@ mod tests {
                 .is_some_and(|scale| (scale - 1.0).abs() < 1e-6)
         }));
 
-        let mesh_node = document["nodes"]
+        let (mesh_node_index, mesh_node) = document["nodes"]
             .as_array()
             .expect("nodes")
             .iter()
-            .find(|node| node.get("mesh").is_some())
+            .enumerate()
+            .find(|(_, node)| node.get("mesh").is_some())
             .expect("skinned mesh node");
         assert_eq!(mesh_node["skin"], 0);
         assert!(
@@ -1987,18 +2341,7 @@ mod tests {
         let inverse_bind_accessor = document["skins"][0]["inverseBindMatrices"]
             .as_u64()
             .expect("inverse bind accessor") as usize;
-        let inverse_bind_view = document["accessors"][inverse_bind_accessor]["bufferView"]
-            .as_u64()
-            .expect("inverse bind buffer view") as usize;
-        let inverse_bind_offset = document["bufferViews"][inverse_bind_view]["byteOffset"]
-            .as_u64()
-            .unwrap_or(0) as usize;
-        let inverse_bind = (0..16)
-            .map(|index| {
-                let offset = inverse_bind_offset + index * std::mem::size_of::<f32>();
-                f32::from_le_bytes(binary[offset..offset + 4].try_into().unwrap())
-            })
-            .collect::<Vec<_>>();
+        let inverse_bind = accessor_f32(&document, &binary, inverse_bind_accessor);
         assert!((inverse_bind[15] - 1.0).abs() < 1e-5);
         for column in 0..3 {
             let offset = column * 4;
@@ -2008,7 +2351,88 @@ mod tests {
                 .sqrt();
             assert!((length - 1.0).abs() < 1e-5, "inverse bind scale changed");
         }
-        assert!(inverse_bind[12..15].iter().all(|value| value.abs() < 1e-5));
+        let nodes = document["nodes"].as_array().expect("nodes");
+        let mut parents = vec![None; nodes.len()];
+        for (parent_index, node) in nodes.iter().enumerate() {
+            if let Some(children) = node["children"].as_array() {
+                for child in children {
+                    parents[child.as_u64().expect("child node") as usize] = Some(parent_index);
+                }
+            }
+        }
+        fn node_local_matrix(node: &Value) -> glam::DMat4 {
+            let read_vec3 = |name: &str, fallback: [f64; 3]| {
+                node[name].as_array().map_or(fallback, |values| {
+                    [
+                        values[0].as_f64().unwrap(),
+                        values[1].as_f64().unwrap(),
+                        values[2].as_f64().unwrap(),
+                    ]
+                })
+            };
+            let translation = read_vec3("translation", [0.0, 0.0, 0.0]);
+            let scale = read_vec3("scale", [1.0, 1.0, 1.0]);
+            let rotation = node["rotation"]
+                .as_array()
+                .map_or([0.0, 0.0, 0.0, 1.0], |v| {
+                    [
+                        v[0].as_f64().unwrap(),
+                        v[1].as_f64().unwrap(),
+                        v[2].as_f64().unwrap(),
+                        v[3].as_f64().unwrap(),
+                    ]
+                });
+            glam::DMat4::from_scale_rotation_translation(
+                glam::DVec3::from_array(scale),
+                glam::DQuat::from_xyzw(rotation[0], rotation[1], rotation[2], rotation[3]),
+                glam::DVec3::from_array(translation),
+            )
+        }
+        fn node_world_matrix(
+            nodes: &[Value],
+            parents: &[Option<usize>],
+            index: usize,
+        ) -> glam::DMat4 {
+            let local = node_local_matrix(&nodes[index]);
+            parents[index].map_or(local, |parent| {
+                node_world_matrix(nodes, parents, parent) * local
+            })
+        }
+        let mesh_world = node_world_matrix(nodes, &parents, mesh_node_index);
+        let mesh_bind_is_non_identity = mesh_world
+            .to_cols_array()
+            .iter()
+            .zip(glam::DMat4::IDENTITY.to_cols_array())
+            .any(|(actual, identity)| (actual - identity).abs() > 1e-5);
+        assert!(
+            mesh_bind_is_non_identity,
+            "fixture must retain a non-identity mesh bind/axis transform"
+        );
+        for (joint, inverse_bind) in document["skins"][0]["joints"]
+            .as_array()
+            .expect("skin joints")
+            .iter()
+            .zip(inverse_bind.chunks_exact(16))
+        {
+            let joint_world = node_world_matrix(
+                nodes,
+                &parents,
+                joint.as_u64().expect("joint node") as usize,
+            );
+            let inverse_bind =
+                glam::DMat4::from_cols_array(&std::array::from_fn(|i| inverse_bind[i] as f64));
+            let rest_skin = joint_world * inverse_bind;
+            let max_error = rest_skin
+                .to_cols_array()
+                .iter()
+                .zip(mesh_world.to_cols_array())
+                .map(|(actual, expected)| (actual - expected).abs())
+                .fold(0.0_f64, f64::max);
+            assert!(
+                max_error < 1e-5,
+                "glTF rest skin must reproduce the mesh bind-world transform, max error {max_error}"
+            );
+        }
     }
 
     #[test]

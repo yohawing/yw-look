@@ -1,4 +1,12 @@
-import { PerspectiveCamera, Scene } from "three";
+import {
+  Color,
+  Line,
+  MeshBasicMaterial,
+  OrthographicCamera,
+  PerspectiveCamera,
+  Points,
+  Scene,
+} from "three";
 import { describe, expect, it, vi } from "vitest";
 import {
   createViewportRuntimeStatsState,
@@ -6,17 +14,70 @@ import {
   sampleViewportRuntimeStats,
   tickViewportFrame,
 } from "../viewportFrame";
-import type { FxaaComposerState } from "../fxaa";
+import type { ViewportComposerState } from "../fxaa";
 import type { SceneContext } from "../../types/viewer";
 
 function makeRenderer() {
+  const clearColor = new Color(0x123456);
+  let clearAlpha = 0.4;
   return {
+    autoClear: true,
+    getClearAlpha: vi.fn(() => clearAlpha),
+    getClearColor: vi.fn((target: Color) => target.copy(clearColor)),
     info: {
       memory: { geometries: 3, textures: 4 },
       render: { calls: 5, triangles: 1200 },
     },
     render: vi.fn(),
+    setClearAlpha: vi.fn((value: number) => {
+      clearAlpha = value;
+    }),
+    setClearColor: vi.fn((value: Color | number) => {
+      clearColor.set(value);
+    }),
+    setRenderTarget: vi.fn(),
   };
+}
+
+function makeComposerState(camera: PerspectiveCamera) {
+  return {
+    composer: {
+      dispose: vi.fn(),
+      render: vi.fn(),
+      setPixelRatio: vi.fn(),
+      setSize: vi.fn(),
+    },
+    disposed: false,
+    failed: false,
+    fxaaPass: {
+      dispose: vi.fn(),
+      enabled: true,
+      material: { uniforms: {} },
+    },
+    outputPass: { dispose: vi.fn() },
+    renderPass: { camera },
+    ssaoPass: {
+      camera,
+      depthRenderMaterial: {
+        uniforms: {
+          cameraFar: { value: camera.far },
+          cameraNear: { value: camera.near },
+        },
+      },
+      dispose: vi.fn(),
+      enabled: true,
+      ssaoMaterial: {
+        uniforms: {
+          cameraFar: { value: camera.far },
+          cameraInverseProjectionMatrix: {
+            value: { copy: vi.fn() },
+          },
+          cameraNear: { value: camera.near },
+          cameraProjectionMatrix: { value: { copy: vi.fn() } },
+        },
+      },
+    },
+  } as unknown as ViewportComposerState;
 }
 
 function makeLabelRenderer() {
@@ -78,19 +139,7 @@ describe("viewportFrame", () => {
     const activeCamera = new PerspectiveCamera();
     const renderer = makeRenderer();
     const labelRenderer = makeLabelRenderer();
-    const fxaaState = {
-      composer: {
-        dispose: vi.fn(),
-        render: vi.fn(),
-        setSize: vi.fn(),
-      },
-      fxaaPass: {
-        material: {
-          uniforms: {},
-        },
-      },
-      renderPass: { camera: defaultCamera },
-    } as unknown as FxaaComposerState;
+    const fxaaState = makeComposerState(defaultCamera);
 
     renderViewportFrame({
       activeCamera,
@@ -103,9 +152,154 @@ describe("viewportFrame", () => {
     });
 
     expect(fxaaState.renderPass.camera).toBe(activeCamera);
+    expect(fxaaState.ssaoPass.enabled).toBe(false);
+    expect(fxaaState.fxaaPass.enabled).toBe(true);
     expect(fxaaState.composer.render).toHaveBeenCalledTimes(1);
     expect(renderer.render).not.toHaveBeenCalled();
     expect(labelRenderer.render).toHaveBeenCalledWith(scene, activeCamera);
+  });
+
+  it("renders SSAO through the composer with the active perspective camera", () => {
+    const scene = new Scene();
+    const defaultCamera = new PerspectiveCamera();
+    const activeCamera = new PerspectiveCamera();
+    const renderer = makeRenderer();
+    const labelRenderer = makeLabelRenderer();
+    const composerState = makeComposerState(defaultCamera);
+
+    renderViewportFrame({
+      activeCamera,
+      ambientOcclusionEnabled: true,
+      defaultCamera,
+      fxaaEnabled: false,
+      fxaaState: composerState,
+      labelRenderer: labelRenderer as never,
+      renderer: renderer as never,
+      scene,
+    });
+
+    expect(composerState.renderPass.camera).toBe(activeCamera);
+    expect(composerState.ssaoPass.camera).toBe(activeCamera);
+    expect(composerState.ssaoPass.enabled).toBe(true);
+    expect(composerState.fxaaPass.enabled).toBe(false);
+    expect(composerState.composer.render).toHaveBeenCalledTimes(1);
+    expect(renderer.render).not.toHaveBeenCalled();
+  });
+
+  it("disables AO for an orthographic camera and keeps direct rendering", () => {
+    const scene = new Scene();
+    const defaultCamera = new PerspectiveCamera();
+    const activeCamera = new OrthographicCamera();
+    const renderer = makeRenderer();
+    const composerState = makeComposerState(defaultCamera);
+
+    renderViewportFrame({
+      activeCamera,
+      ambientOcclusionEnabled: true,
+      defaultCamera,
+      fxaaEnabled: false,
+      fxaaState: composerState,
+      labelRenderer: makeLabelRenderer() as never,
+      renderer: renderer as never,
+      scene,
+    });
+
+    expect(composerState.composer.render).not.toHaveBeenCalled();
+    expect(renderer.render).toHaveBeenCalledWith(scene, activeCamera);
+  });
+
+  it("falls back permanently to direct rendering after a composer failure", () => {
+    const scene = new Scene();
+    const originalOverrideMaterial = new MeshBasicMaterial();
+    scene.overrideMaterial = originalOverrideMaterial;
+    const points = new Points();
+    const line = new Line();
+    scene.add(points, line);
+    const defaultCamera = new PerspectiveCamera();
+    const renderer = makeRenderer();
+    const composerState = makeComposerState(defaultCamera);
+    vi.mocked(composerState.composer.render).mockImplementation(() => {
+      scene.overrideMaterial = new MeshBasicMaterial();
+      renderer.autoClear = false;
+      renderer.setClearColor(0xffffff);
+      renderer.setClearAlpha(1);
+      points.visible = false;
+      line.visible = false;
+      throw new Error("post-processing failed");
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    renderViewportFrame({
+      activeCamera: null,
+      ambientOcclusionEnabled: true,
+      defaultCamera,
+      fxaaEnabled: true,
+      fxaaState: composerState,
+      labelRenderer: makeLabelRenderer() as never,
+      renderer: renderer as never,
+      scene,
+    });
+    renderViewportFrame({
+      activeCamera: null,
+      ambientOcclusionEnabled: true,
+      defaultCamera,
+      fxaaEnabled: true,
+      fxaaState: composerState,
+      labelRenderer: makeLabelRenderer() as never,
+      renderer: renderer as never,
+      scene,
+    });
+
+    expect(composerState.failed).toBe(true);
+    expect(composerState.composer.render).toHaveBeenCalledTimes(1);
+    expect(renderer.setRenderTarget).toHaveBeenCalledWith(null);
+    expect(renderer.render).toHaveBeenCalledTimes(2);
+    expect(scene.overrideMaterial).toBe(originalOverrideMaterial);
+    expect(renderer.autoClear).toBe(true);
+    expect(renderer.getClearAlpha()).toBe(0.4);
+    expect(renderer.getClearColor(new Color()).getHex()).toBe(0x123456);
+    expect(points.visible).toBe(true);
+    expect(line.visible).toBe(true);
+    warn.mockRestore();
+  });
+
+  it("restores renderer and scene state after a successful composer render", () => {
+    const scene = new Scene();
+    const originalOverrideMaterial = new MeshBasicMaterial();
+    scene.overrideMaterial = originalOverrideMaterial;
+    const points = new Points();
+    const line = new Line();
+    scene.add(points, line);
+    const defaultCamera = new PerspectiveCamera();
+    const renderer = makeRenderer();
+    const composerState = makeComposerState(defaultCamera);
+    vi.mocked(composerState.composer.render).mockImplementation(() => {
+      scene.overrideMaterial = null;
+      renderer.autoClear = false;
+      renderer.setClearColor(0xffffff);
+      renderer.setClearAlpha(1);
+      points.visible = false;
+      line.visible = false;
+    });
+
+    renderViewportFrame({
+      activeCamera: null,
+      ambientOcclusionEnabled: true,
+      defaultCamera,
+      fxaaEnabled: true,
+      fxaaState: composerState,
+      labelRenderer: makeLabelRenderer() as never,
+      renderer: renderer as never,
+      scene,
+    });
+
+    expect(scene.overrideMaterial).toBe(originalOverrideMaterial);
+    expect(renderer.autoClear).toBe(true);
+    expect(renderer.getClearAlpha()).toBe(0.4);
+    expect(renderer.getClearColor(new Color()).getHex()).toBe(0x123456);
+    expect(points.visible).toBe(true);
+    expect(line.visible).toBe(true);
+    expect(renderer.render).not.toHaveBeenCalled();
   });
 
   it("samples stats at 250 ms and publishes diagnostics at the resource interval", () => {

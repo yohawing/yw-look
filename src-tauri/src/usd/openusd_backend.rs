@@ -49,6 +49,7 @@ use super::types::{
 };
 use composition_arcs::{payload_arc_state, reference_arc_state};
 use extract::extract_geometry_from_open_stage_rs;
+use mesh_visibility::has_authored_visibility;
 #[cfg(test)]
 use mesh_visibility::is_renderable_mesh;
 #[cfg(test)]
@@ -676,6 +677,18 @@ impl UsdInspectBackend for OpenusdBackend {
         let needs_native_resources = RefCell::new(false);
         stage
             .traverse(LEGACY_TRAVERSE_PREDICATE, |prim_path| {
+                if has_authored_visibility(&stage, prim_path) {
+                    *needs_native_resources.borrow_mut() = true;
+                    return;
+                }
+                // Resolve the effective binding through the stage query so
+                // inherited bindings and GeomSubset bindings take the same
+                // native GLB route as direct mesh bindings. Merely containing
+                // the marker text is not sufficient.
+                if stage_query::bound_material(&stage, prim_path.clone()).is_some() {
+                    *needs_native_resources.borrow_mut() = true;
+                    return;
+                }
                 let type_name = stage.prim_at(prim_path.clone()).type_name().ok().flatten();
                 // The JS text loader only receives the layer buffer and cannot
                 // resolve UsdUVTexture sidecars. This also covers shaders past
@@ -1331,6 +1344,83 @@ def Xform "Root"
     }
 
     #[test]
+    fn hidden_point_instancer_placement_emits_no_instancing_output() {
+        for (name, placement, instancer_prefix, close_placement) in [
+            (
+                "direct-invisible",
+                "def PointInstancer \"Instancer\"\n    {\n        token visibility = \"invisible\"",
+                "",
+                "",
+            ),
+            (
+                "direct-inactive",
+                "def PointInstancer \"Instancer\" (active = false)\n    {",
+                "",
+                "",
+            ),
+            (
+                "invisible-ancestor",
+                "def Xform \"Placement\"\n    {\n        token visibility = \"invisible\"\n        def PointInstancer \"Instancer\"\n        {",
+                "Placement/",
+                "    }\n",
+            ),
+            (
+                "inactive-ancestor",
+                "def Xform \"Placement\" (active = false)\n    {\n        def PointInstancer \"Instancer\"\n        {",
+                "Placement/",
+                "    }\n",
+            ),
+        ] {
+            let temp = tempfile::tempdir().expect("create hidden instancer fixture directory");
+            let path = temp.path().join(format!("{name}.usda"));
+            let contents = format!(
+                r#"#usda 1.0
+(
+    defaultPrim = "Root"
+)
+
+def Xform "Root"
+{{
+    def Mesh "Visible"
+    {{
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+    }}
+
+    {placement}
+        rel prototypes = [</Root/{instancer_prefix}Instancer/Prototype>]
+        int[] protoIndices = [0]
+        point3f[] positions = [(2, 0, 0)]
+
+        def Mesh "Prototype"
+        {{
+            int[] faceVertexCounts = [3]
+            int[] faceVertexIndices = [0, 1, 2]
+            point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        }}
+    }}
+{close_placement}}}
+"#,
+            );
+            std::fs::write(&path, contents).expect("write hidden instancer fixture");
+
+            let glb = OpenusdBackend::new()
+                .extract_geometry_glb(&path, StageLoadPolicy::LoadAll)
+                .expect("extract stage with hidden PointInstancer");
+            let document = glb_json(&glb);
+            assert!(document["extensionsUsed"].is_null(), "fixture = {name}");
+            let mesh_paths = document["nodes"]
+                .as_array()
+                .expect("GLB nodes")
+                .iter()
+                .filter_map(|node| node.get("mesh").map(|_| node["extras"]["primPath"].clone()))
+                .collect::<Vec<_>>();
+            assert_eq!(mesh_paths, vec![serde_json::json!("/Root/Visible")]);
+        }
+    }
+
+    #[test]
     fn extracts_mesh_from_native_instance_proxy() {
         let temp = tempfile::tempdir().expect("create native instance fixture directory");
         let path = temp.path().join("native_instance.usda");
@@ -1472,6 +1562,173 @@ def Xform "Root"
             assert_eq!(
                 OpenusdBackend::new().requires_glb_preview(&path).unwrap(),
                 expected
+            );
+        }
+    }
+
+    #[test]
+    fn authored_visibility_routes_to_glb_and_filters_direct_and_inherited_meshes() {
+        for (name, hidden_prim) in [
+            (
+                "direct",
+                r#"def Mesh "Hidden"
+    {
+        token visibility = "invisible"
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+    }"#,
+            ),
+            (
+                "inherited",
+                r#"def Xform "HiddenParent"
+    {
+        token visibility = "invisible"
+        def Mesh "Hidden"
+        {
+            int[] faceVertexCounts = [3]
+            int[] faceVertexIndices = [0, 1, 2]
+            point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        }
+    }"#,
+            ),
+        ] {
+            let temp = tempfile::tempdir().expect("create visibility fixture directory");
+            let path = temp.path().join(format!("{name}.usda"));
+            let contents = format!(
+                r#"#usda 1.0
+(
+    defaultPrim = "Root"
+)
+
+def Xform "Root"
+{{
+    def Mesh "Visible"
+    {{
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+    }}
+
+    {hidden_prim}
+}}
+"#,
+            );
+            std::fs::write(&path, contents).expect("write visibility fixture");
+
+            let backend = OpenusdBackend::new();
+            assert!(
+                backend
+                    .requires_glb_preview(&path)
+                    .expect("route authored visibility fixture"),
+                "fixture = {name}"
+            );
+            let glb = backend
+                .extract_geometry_glb(&path, StageLoadPolicy::LoadAll)
+                .expect("extract authored visibility fixture");
+            let document = glb_json(&glb);
+            let mesh_paths = document["nodes"]
+                .as_array()
+                .expect("GLB nodes")
+                .iter()
+                .filter_map(|node| node.get("mesh").map(|_| node["extras"]["primPath"].clone()))
+                .collect::<Vec<_>>();
+            assert_eq!(mesh_paths, vec![serde_json::json!("/Root/Visible")]);
+        }
+    }
+
+    #[test]
+    fn visibility_text_without_an_authored_attribute_stays_on_the_text_route() {
+        let temp = tempfile::tempdir().expect("create visibility marker fixture directory");
+        let path = temp.path().join("visibility-marker.usda");
+        for contents in [
+            "#usda 1.0\n# visibility is intentionally not authored\ndef Xform \"Root\" {}",
+            "#usda 1.0\ndef Xform \"visibilityHelper\" {}",
+        ] {
+            std::fs::write(&path, contents).expect("write visibility marker fixture");
+            assert!(
+                !OpenusdBackend::new()
+                    .requires_glb_preview(&path)
+                    .expect("inspect visibility text candidate"),
+                "contents = {contents}"
+            );
+        }
+    }
+
+    #[test]
+    fn resolved_material_bindings_route_single_layer_usda_to_glb() {
+        for (name, binding_owner) in [
+            ("direct", "/Root/Body"),
+            ("inherited", "/Root"),
+            ("geom-subset", "/Root/Body/Face"),
+        ] {
+            let temp = tempfile::tempdir().expect("create material binding fixture directory");
+            let path = temp.path().join(format!("{name}.usda"));
+            let contents = format!(
+                r#"#usda 1.0
+def Xform "Root"
+{{
+    rel material:binding = {root_binding}
+    def Mesh "Body"
+    {{
+        rel material:binding = {mesh_binding}
+        int[] faceVertexCounts = [3]
+        int[] faceVertexIndices = [0, 1, 2]
+        point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+        def GeomSubset "Face"
+        {{
+            uniform token elementType = "face"
+            int[] indices = [0]
+            rel material:binding = {subset_binding}
+        }}
+    }}
+}}
+def Scope "Looks"
+{{
+    def Material "Body" {{}}
+}}
+"#,
+                root_binding = if binding_owner == "/Root" {
+                    "</Looks/Body>"
+                } else {
+                    "None"
+                },
+                mesh_binding = if binding_owner == "/Root/Body" {
+                    "</Looks/Body>"
+                } else {
+                    "None"
+                },
+                subset_binding = if binding_owner == "/Root/Body/Face" {
+                    "</Looks/Body>"
+                } else {
+                    "None"
+                },
+            );
+            std::fs::write(&path, contents).expect("write material binding fixture");
+
+            assert!(
+                OpenusdBackend::new()
+                    .requires_glb_preview(&path)
+                    .expect("inspect resolved material binding"),
+                "fixture = {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn material_binding_text_without_a_relationship_stays_on_the_text_route() {
+        let temp = tempfile::tempdir().expect("create material binding marker fixture directory");
+        let path = temp.path().join("material-binding-marker.usda");
+        for contents in [
+            "#usda 1.0\n# material:binding is intentionally not authored\ndef Xform \"Root\" {}",
+            "#usda 1.0\ndef Xform \"Root\" { string note = \"material:binding\" }",
+        ] {
+            std::fs::write(&path, contents).expect("write material binding marker fixture");
+            assert!(
+                !OpenusdBackend::new()
+                    .requires_glb_preview(&path)
+                    .expect("inspect material binding text candidate"),
+                "contents = {contents}"
             );
         }
     }

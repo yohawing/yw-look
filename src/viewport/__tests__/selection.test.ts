@@ -1,14 +1,23 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  Bone,
+  Box3,
   BoxGeometry,
+  BufferAttribute,
   BufferGeometry,
+  Group,
   InterleavedBuffer,
   InterleavedBufferAttribute,
+  Matrix4,
   Mesh,
   MeshBasicMaterial,
+  ObjectLoader,
   PerspectiveCamera,
   PlaneGeometry,
   Scene,
+  Skeleton,
+  SkinnedMesh,
+  Vector3,
 } from "three";
 import { acceleratedRaycast, MeshBVH } from "three-mesh-bvh";
 import { createViewportPicker } from "../selection";
@@ -124,10 +133,199 @@ describe("createViewportPicker", () => {
 
     const camera = new PerspectiveCamera(60, 1, 0.1, 100);
     camera.updateMatrixWorld(true);
+    const updateWorldMatrix = vi.spyOn(scene, "updateWorldMatrix");
     const picker = createViewportPicker(camera, makeDomElement());
     picker.syncMountedObject(scene);
 
     expect(picker.pickSelectionKey(scene, makePointer(50, 50))).toBe("Cube");
+    expect(updateWorldMatrix).not.toHaveBeenCalled();
+  });
+
+  it("refreshes ObjectLoader skinned bounds for the current pose before raycasting", () => {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new BufferAttribute(new Float32Array([-1, -1, 0, 1, -1, 0, 0, 1, 0]), 3),
+    );
+    geometry.setAttribute(
+      "skinIndex",
+      new BufferAttribute(new Uint16Array(3 * 4), 4),
+    );
+    geometry.setAttribute(
+      "skinWeight",
+      new BufferAttribute(
+        new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]),
+        4,
+      ),
+    );
+    geometry.setIndex([0, 1, 2]);
+
+    const source = new Group();
+    source.position.z = -5;
+    source.rotation.y = 0.3;
+    source.updateMatrix();
+    source.matrixAutoUpdate = false;
+    const sourceMesh = new SkinnedMesh(geometry, new MeshBasicMaterial());
+    sourceMesh.name = "CurrentPoseSkin";
+    const sourceBone = new Bone();
+    sourceBone.name = "CurrentPoseBone";
+    sourceMesh.bind(new Skeleton([sourceBone], [new Matrix4()]), new Matrix4());
+    // Keep the mesh before its bone sibling. ObjectLoader preserves this
+    // ordering, reproducing a mount-time bounds query that reaches the mesh
+    // before the bone has a world matrix.
+    source.add(sourceMesh, sourceBone);
+
+    const mounted = new ObjectLoader().parse(source.toJSON());
+    const mesh = mounted.getObjectByName("CurrentPoseSkin") as SkinnedMesh;
+    const bone = mounted.getObjectByName("CurrentPoseBone") as Bone;
+    bone.position.x = 10;
+
+    // Simulate framing/BoxHelper work before the first rendered hierarchy
+    // update. Both object-level bounds now describe the incomplete pose.
+    bone.matrixWorld.identity();
+    mesh.computeBoundingSphere();
+    mesh.computeBoundingBox();
+    new Box3().setFromObject(mounted);
+    const staleBox = mesh.boundingBox!.clone();
+    const staleSphere = mesh.boundingSphere!.clone();
+
+    const camera = new PerspectiveCamera(30, 1, 0.1, 100);
+    const aimAtCurrentPose = () => {
+      mounted.updateWorldMatrix(true, true, true);
+      const a = mesh.getVertexPosition(0, new Vector3());
+      const b = mesh.getVertexPosition(1, new Vector3());
+      const c = mesh.getVertexPosition(2, new Vector3());
+      const localCenter = a
+        .clone()
+        .add(b)
+        .add(c)
+        .multiplyScalar(1 / 3);
+      const worldA = a.applyMatrix4(mesh.matrixWorld);
+      const worldB = b.applyMatrix4(mesh.matrixWorld);
+      const worldC = c.applyMatrix4(mesh.matrixWorld);
+      const worldCenter = worldA
+        .clone()
+        .add(worldB)
+        .add(worldC)
+        .multiplyScalar(1 / 3);
+      const worldNormal = worldB
+        .clone()
+        .sub(worldA)
+        .cross(worldC.clone().sub(worldA))
+        .normalize();
+      camera.position.copy(worldCenter).addScaledVector(worldNormal, 3);
+      camera.lookAt(worldCenter);
+      camera.updateProjectionMatrix();
+      camera.updateMatrixWorld(true);
+      return localCenter;
+    };
+
+    const firstCenter = aimAtCurrentPose();
+    expect(staleBox.containsPoint(firstCenter)).toBe(false);
+    expect(staleSphere.containsPoint(firstCenter)).toBe(false);
+    const computeBox = vi.spyOn(mesh, "computeBoundingBox");
+    const computeSphere = vi.spyOn(mesh, "computeBoundingSphere");
+    const picker = createViewportPicker(camera, makeDomElement());
+    picker.syncMountedObject(mounted);
+
+    mounted.matrixWorld.identity();
+    mounted.matrixWorldNeedsUpdate = false;
+    bone.matrixWorld.identity();
+    bone.matrixWorldNeedsUpdate = true;
+    expect(picker.pickSelectionKey(mounted, makePointer(50, 50))).toBe(
+      "CurrentPoseSkin",
+    );
+    expect(mesh.boundingBox!.containsPoint(firstCenter)).toBe(true);
+    expect(computeBox).toHaveBeenCalledTimes(1);
+    expect(computeSphere).toHaveBeenCalledTimes(1);
+
+    // A later pose must not reuse the sphere produced by the previous pick.
+    bone.position.x = 12;
+    bone.matrixWorldNeedsUpdate = true;
+    const secondCenter = aimAtCurrentPose();
+    mounted.matrixWorld.identity();
+    mounted.matrixWorldNeedsUpdate = false;
+    bone.matrixWorld.identity();
+    bone.matrixWorldNeedsUpdate = true;
+    expect(picker.pickSelectionKey(mounted, makePointer(50, 50))).toBe(
+      "CurrentPoseSkin",
+    );
+    expect(mesh.boundingBox!.containsPoint(secondCenter)).toBe(true);
+    expect(computeBox).toHaveBeenCalledTimes(2);
+    expect(computeSphere).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses the current mesh visibility instead of freezing it at synchronization", () => {
+    const scene = new Scene();
+    const mesh = new Mesh(new BoxGeometry(), new MeshBasicMaterial());
+    mesh.name = "Toggleable";
+    mesh.position.z = -5;
+    mesh.visible = false;
+    scene.add(mesh);
+    scene.updateMatrixWorld(true);
+    const camera = new PerspectiveCamera(60, 1, 0.1, 100);
+    camera.updateMatrixWorld(true);
+    const picker = createViewportPicker(camera, makeDomElement());
+    picker.syncMountedObject(scene);
+
+    expect(picker.pickSelectionKey(scene, makePointer(50, 50))).toBeNull();
+
+    mesh.visible = true;
+    expect(picker.pickSelectionKey(scene, makePointer(50, 50))).toBe(
+      "Toggleable",
+    );
+  });
+
+  it("does not pick a mesh below an invisible parent", () => {
+    const scene = new Scene();
+    const parent = new Group();
+    const mesh = new Mesh(new BoxGeometry(), new MeshBasicMaterial());
+    mesh.name = "HiddenByParent";
+    mesh.position.z = -5;
+    parent.add(mesh);
+    scene.add(parent);
+    scene.updateMatrixWorld(true);
+    const camera = new PerspectiveCamera(60, 1, 0.1, 100);
+    camera.updateMatrixWorld(true);
+    const picker = createViewportPicker(camera, makeDomElement());
+    picker.syncMountedObject(scene);
+
+    parent.visible = false;
+    expect(picker.pickSelectionKey(scene, makePointer(50, 50))).toBeNull();
+  });
+
+  it("picks a visible mesh behind an invisible BVH mesh", async () => {
+    const scene = new Scene();
+    const front = new Mesh(new BoxGeometry(), new MeshBasicMaterial());
+    front.name = "InvisibleFront";
+    front.position.z = -4;
+    const rear = new Mesh(new BoxGeometry(), new MeshBasicMaterial());
+    rear.name = "VisibleRear";
+    rear.position.z = -6;
+    scene.add(front, rear);
+    scene.updateMatrixWorld(true);
+    const builder = {
+      build: vi.fn(async (mesh: Mesh) => {
+        mesh.geometry.boundsTree = new MeshBVH(mesh.geometry);
+        mesh.raycast = acceleratedRaycast;
+        return true;
+      }),
+      invalidate: vi.fn(),
+      dispose: vi.fn(),
+    } as unknown as ReturnType<typeof createMeshBvhRaycastBuilder>;
+    const camera = new PerspectiveCamera(60, 1, 0.1, 100);
+    camera.updateMatrixWorld(true);
+    const picker = createViewportPicker(camera, makeDomElement(), {
+      bvhBuilder: builder,
+      largeTriangleThreshold: 1,
+    });
+    picker.syncMountedObject(scene);
+
+    front.visible = false;
+    await expect(
+      picker.pickSelectionKey(scene, makePointer(50, 50)),
+    ).resolves.toBe("VisibleRear");
+    expect(builder.build).toHaveBeenCalledTimes(2);
   });
 
   it("selects a mounted root mesh directly", () => {
@@ -363,6 +561,48 @@ describe("createViewportPicker", () => {
       }),
     );
     expect(raycast).not.toHaveBeenCalled();
+  });
+
+  it("only sends currently visible meshes to GPU picking", async () => {
+    const root = new Scene();
+    const hiddenParent = new Group();
+    hiddenParent.visible = false;
+    const hiddenByParent = new Mesh(new BoxGeometry(), new MeshBasicMaterial());
+    hiddenByParent.name = "HiddenByParent";
+    hiddenByParent.morphTargetInfluences = [0];
+    hiddenParent.add(hiddenByParent);
+    const directlyHidden = new Mesh(new BoxGeometry(), new MeshBasicMaterial());
+    directlyHidden.name = "DirectlyHidden";
+    directlyHidden.visible = false;
+    directlyHidden.morphTargetInfluences = [0];
+    const visible = new Mesh(new BoxGeometry(), new MeshBasicMaterial());
+    visible.name = "Visible";
+    visible.morphTargetInfluences = [0];
+    root.add(hiddenParent, directlyHidden, visible);
+    const gpuPicker = {
+      dispose: vi.fn(),
+      pick: vi.fn(async () => "Visible"),
+    };
+    const camera = new PerspectiveCamera();
+    const picker = createViewportPicker(camera, makeDomElement(), {
+      gpuPicker,
+      largeTriangleThreshold: 1,
+    });
+    picker.syncMountedObject(root);
+
+    const result = picker.pickSelectionKey(root, makePointer(50, 50));
+    await picker.flushPendingGpuPick({
+      camera,
+      renderer: {} as never,
+      scene: root,
+    });
+
+    await expect(result).resolves.toBe("Visible");
+    expect(gpuPicker.pick).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targets: [{ key: "Visible", mesh: visible }],
+      }),
+    );
   });
 
   it("deduplicates selection proxy keys in the GPU target list", async () => {

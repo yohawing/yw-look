@@ -1,3 +1,5 @@
+import { TexturesSidebarPanel } from "../TexturesSidebarPanel";
+import { useUiStore } from "../../stores/uiStore";
 /**
  * Tests for MaterialListCard shader-slot detail panel (#36).
  */
@@ -11,8 +13,13 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { MaterialListCard } from "../MaterialListCard";
-import type { AssetMetadata, MaterialEntry } from "../assetMetadata";
+import type {
+  AssetMetadata,
+  MaterialEntry,
+  TextureEntry,
+} from "../assetMetadata";
 import { useFileStore } from "../../stores/fileStore";
+import { useViewerStore } from "../../stores/viewerStore";
 
 beforeEach(() => {
   useFileStore.setState({
@@ -22,6 +29,12 @@ beforeEach(() => {
     assetMetadata: null,
     packFileRequest: null,
     openError: null,
+  });
+  useViewerStore.setState({
+    materialNavigationRequest: null,
+    textureNavigationRequest: null,
+    selectedTextureId: null,
+    viewerSurfaceMode: "asset",
   });
 });
 
@@ -51,7 +64,10 @@ const baseMat: MaterialEntry = {
   mmd: null,
 };
 
-function makeMetadata(materials: MaterialEntry[]): AssetMetadata {
+function makeMetadata(
+  materials: MaterialEntry[],
+  textures: TextureEntry[] = [],
+): AssetMetadata {
   return {
     formatLabel: "Test",
     formatVersion: null,
@@ -61,7 +77,7 @@ function makeMetadata(materials: MaterialEntry[]): AssetMetadata {
     textureCount: 0,
     hasAnimation: false,
     hierarchy: [],
-    textures: [],
+    textures,
     materials,
     lights: [],
     cameras: [],
@@ -76,7 +92,90 @@ function renderWithMaterials(materials: MaterialEntry[]) {
   return render(<MaterialListCard />);
 }
 
+function baseColorTexture(overrides: Partial<TextureEntry> = {}): TextureEntry {
+  return {
+    id: "texture-base-color",
+    label: "albedo.png",
+    sourcePath: "F:/textures/albedo.png",
+    channel: "Base Color",
+    dimensions: "1024x1024",
+    thumbnailUrl: "data:image/png;base64,albedo",
+    sourceKind: "external",
+    ...overrides,
+  };
+}
+
 describe("MaterialListCard – shader slot details (#36)", () => {
+  it("shows each factor once and navigates by texture ID and channel despite identical names", () => {
+    const textures: TextureEntry[] = [
+      {
+        id: "other",
+        label: "same.png",
+        channel: "Normal",
+        dimensions: "8×8",
+        thumbnailUrl: null,
+        sourceKind: "embedded",
+      },
+      {
+        id: "target",
+        label: "same.png",
+        channel: "Base Color",
+        dimensions: "8×8",
+        thumbnailUrl: null,
+        sourceKind: "embedded",
+      },
+      {
+        id: "target",
+        label: "same.png",
+        channel: "Normal",
+        dimensions: "8×8",
+        thumbnailUrl: null,
+        sourceKind: "embedded",
+      },
+    ];
+    useFileStore.setState({
+      assetMetadata: makeMetadata(
+        [
+          {
+            ...baseMat,
+            normalTexture: { name: "same.png", textureId: "target" },
+          },
+        ],
+        textures,
+      ),
+    });
+    const { getByRole, getAllByText, container } = render(
+      <>
+        <MaterialListCard />
+        <TexturesSidebarPanel />
+      </>,
+    );
+    expect(getAllByText("Metallic")).toHaveLength(1);
+    expect(getAllByText("Roughness")).toHaveLength(1);
+    fireEvent.click(getByRole("button", { name: "Base Color" }));
+    fireEvent.click(getByRole("button", { name: "same.png" }));
+    expect(useViewerStore.getState().selectedTextureId).toBe("target");
+    expect(useViewerStore.getState().textureNavigationRequest).toMatchObject({
+      textureId: "target",
+      channel: "Normal",
+      revision: 1,
+    });
+    expect(useViewerStore.getState().viewerSurfaceMode).toBe("asset");
+    expect(useUiStore.getState().activeTab).toBe("textures");
+    expect(container.querySelectorAll(".texture-row")).toHaveLength(3);
+    expect(
+      container
+        .querySelectorAll(".texture-row")[2]
+        .classList.contains("is-active"),
+    ).toBe(true);
+    fireEvent.click(getByRole("button", { name: "Base Color" }));
+    fireEvent.click(getByRole("button", { name: "same.png" }));
+    expect(container.querySelectorAll(".texture-row")).toHaveLength(3);
+    expect(useViewerStore.getState().textureNavigationRequest?.revision).toBe(
+      2,
+    );
+  });
+
   it("shows only the binding count and shares detail rows with other Selected panels", () => {
     const { container, getByText, queryByText } = renderWithMaterials([
       { ...baseMat, boundMeshes: ["UniqueMeshOne", "UniqueMeshTwo"] },
@@ -92,7 +191,7 @@ describe("MaterialListCard – shader slot details (#36)", () => {
     ).toBeTruthy();
     expect(container.querySelector(".material-selected-title")).toBeNull();
     expect(
-      getByText("shader inputs")
+      getByText("Material parameters")
         .closest("details")
         ?.querySelector(".selected-kv"),
     ).toBeTruthy();
@@ -131,9 +230,85 @@ describe("MaterialListCard – shader slot details (#36)", () => {
     ).toBe("Resize material details");
   });
 
+  it("uses the diffuse texture thumbnail ahead of the base-color swatch", () => {
+    useFileStore.setState({
+      assetMetadata: makeMetadata(
+        [
+          {
+            ...baseMat,
+            baseColorTexture: {
+              name: "albedo.png",
+              sourcePath: "F:\\textures\\albedo.png",
+            },
+          },
+        ],
+        [baseColorTexture({ previewFlipY: true })],
+      ),
+    });
+    const { container } = render(<MaterialListCard />);
+
+    const preview = container.querySelector(
+      ".material-swatch-image",
+    ) as HTMLImageElement | null;
+    expect(preview?.getAttribute("src")).toBe("data:image/png;base64,albedo");
+    expect(preview?.classList.contains("is-preview-flipped-y")).toBe(true);
+    expect(
+      container.querySelector(".material-swatch")?.getAttribute("style"),
+    ).toContain("background");
+  });
+
+  it("does not guess between duplicate diffuse texture names", () => {
+    useFileStore.setState({
+      assetMetadata: makeMetadata(
+        [
+          {
+            ...baseMat,
+            baseColorTexture: { name: "albedo.png" },
+          },
+        ],
+        [
+          baseColorTexture({ id: "first", sourcePath: "a/albedo.png" }),
+          baseColorTexture({ id: "second", sourcePath: "b/albedo.png" }),
+        ],
+      ),
+    });
+    const { container } = render(<MaterialListCard />);
+
+    expect(container.querySelector(".material-swatch-image")).toBeNull();
+    expect(
+      container.querySelector(".material-swatch")?.getAttribute("style"),
+    ).toContain("background");
+  });
+
+  it("updates the material preview when the async thumbnail arrives", () => {
+    const material = {
+      ...baseMat,
+      baseColorTexture: { name: "albedo.png" },
+    };
+    const texture = baseColorTexture({ thumbnailUrl: null });
+    useFileStore.setState({
+      assetMetadata: makeMetadata([material], [texture]),
+    });
+    const { container } = render(<MaterialListCard />);
+    expect(container.querySelector(".material-swatch-image")).toBeNull();
+
+    act(() => {
+      useFileStore.setState({
+        assetMetadata: makeMetadata(
+          [material],
+          [{ ...texture, thumbnailUrl: "data:image/png;base64,ready" }],
+        ),
+      });
+    });
+
+    expect(
+      container.querySelector(".material-swatch-image")?.getAttribute("src"),
+    ).toBe("data:image/png;base64,ready");
+  });
+
   it("renders shader inputs summary when shader detail is present", () => {
     const { getByText } = renderWithMaterials([baseMat]);
-    expect(getByText("shader inputs")).toBeTruthy();
+    expect(getByText("Material parameters")).toBeTruthy();
   });
 
   it("renders base color hex values in the shared lowercase format", () => {
@@ -143,7 +318,7 @@ describe("MaterialListCard – shader slot details (#36)", () => {
     expect(queryByText("#B5A642")).toBeNull();
   });
 
-  it("does not render shader inputs when all slots are null", () => {
+  it("keeps opacity parameters available without PBR factors", () => {
     const mat: MaterialEntry = {
       ...baseMat,
       id: "mat-none",
@@ -159,7 +334,7 @@ describe("MaterialListCard – shader slot details (#36)", () => {
       usdPrimPath: null,
     };
     const { queryByText } = renderWithMaterials([mat]);
-    expect(queryByText("shader inputs")).toBeNull();
+    expect(queryByText("Material parameters")).toBeTruthy();
   });
 
   it("renders texture name in shader detail", () => {
@@ -305,5 +480,39 @@ describe("MaterialListCard – shader slot details (#36)", () => {
     fireEvent.compositionEnd(filter);
     expect(container.querySelectorAll(".material-row")).toHaveLength(1);
     expect(container.textContent).toContain("材質01");
+  });
+
+  it("clears the filter and reveals repeated viewport material requests", async () => {
+    const materials = Array.from({ length: 20 }, (_, index) => ({
+      ...baseMat,
+      id: `mat-${index}`,
+      name: `Material ${index}`,
+      usdPrimPath: `/Looks/Material${index}`,
+    }));
+    const { getByRole, getByText, container } = renderWithMaterials(materials);
+    fireEvent.click(getByRole("button", { name: "Search materials" }));
+    fireEvent.change(getByRole("textbox", { name: "Filter materials" }), {
+      target: { value: "Material 0" },
+    });
+
+    act(() => {
+      useViewerStore.getState().requestMaterialNavigation("mat-19");
+    });
+
+    await waitFor(() => expect(getByText("Material 19")).toBeTruthy());
+    fireEvent.click(getByRole("button", { name: "Search materials" }));
+    expect(
+      (getByRole("textbox", { name: "Filter materials" }) as HTMLInputElement)
+        .value,
+    ).toBe("");
+    expect(getByText("/Looks/Material19")).toBeTruthy();
+
+    const firstList = container.querySelector(".material-list");
+    act(() => {
+      useViewerStore.getState().requestMaterialNavigation("mat-19");
+    });
+    await waitFor(() =>
+      expect(container.querySelector(".material-list")).not.toBe(firstList),
+    );
   });
 });

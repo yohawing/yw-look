@@ -32,6 +32,7 @@ beforeEach(() => {
   useFileStore.setState({ assetMetadata: null });
   useViewerStore.setState({
     activeCameraId: null,
+    ambientOcclusionEnabled: true,
     viewerSurfaceMode: "asset",
     showTexture: false,
     showWireframe: false,
@@ -108,10 +109,12 @@ describe("useViewportToolbarModel", () => {
       rotation.onValueChange(90);
       action("environment-background").onRun?.();
       action("lighting-shadows").onRun?.();
+      action("lighting-ambient-occlusion").onRun?.();
     });
     expect(useViewerStore.getState()).toMatchObject({
       environmentPreset: "outdoor",
       environmentRotation: Math.PI / 2,
+      ambientOcclusionEnabled: false,
       showEnvironmentBackground: true,
       showShadows: true,
     });

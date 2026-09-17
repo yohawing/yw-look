@@ -1,3 +1,4 @@
+import { t, useLocale, formatNumber } from "../lib/i18n";
 import { useSidebarLayout } from "../hooks/useSidebarLayout";
 import { ArboristHierarchyTree } from "./ArboristHierarchyTree";
 import { useMemo, useState, type ReactNode } from "react";
@@ -40,6 +41,8 @@ type HierarchyCardProps = {
    * the hierarchy selection to the `UsdPrimPropertyPanel`. `null` is
    * passed when the active row is clicked a second time (deselect). */
   onSelectPrimPath?: (primPath: string | null) => void;
+  /** Opens a material explicitly from the selected object's material row. */
+  onSelectMaterial?: (materialId: string) => void;
   // ---- #44 per-prim payload session controls --------------------------------
   /**
    * Set of SdfPaths that author a payload arc on this stage (load state
@@ -113,7 +116,7 @@ function formatPreviewVector(value: readonly number[]): string {
   return value
     .map((part) =>
       Number.isFinite(part)
-        ? part.toLocaleString(undefined, { maximumFractionDigits: 4 })
+        ? formatNumber(part, { maximumFractionDigits: 4 })
         : String(part),
     )
     .join(", ");
@@ -134,6 +137,7 @@ function SelectedInspectorSection({
   note?: string;
   rows: readonly KeyValueRow[];
 }) {
+  useLocale();
   return (
     <section className="selected-inspector-section">
       <div className="selected-inspector-section-head">
@@ -148,6 +152,7 @@ function SelectedInspectorSection({
 }
 
 export function HierarchyCard(props: HierarchyCardProps) {
+  useLocale();
   return (
     <HierarchyCardContent
       key={props.fileIdentity ?? "__no-file__"}
@@ -164,6 +169,7 @@ function HierarchyCardContent({
   selectedName,
   onSelectName,
   onSelectPrimPath,
+  onSelectMaterial,
   payloadPrimPaths,
   unloadedPayloadPaths,
   onLoadPayload,
@@ -172,6 +178,7 @@ function HierarchyCardContent({
   selectedTransformNote = "Preview local values",
   renderMorphTargetMeta,
 }: HierarchyCardProps) {
+  useLocale();
   const layoutProps = useSidebarLayout("hierarchy");
   const [searchQuery, setSearchQuery] = useState("");
   const normalizedSelected = selectedName ?? null;
@@ -195,39 +202,39 @@ function HierarchyCardContent({
     ? ([
         {
           id: "name",
-          label: "Name",
+          label: t("name"),
           value: hierarchyDisplayName(selectedNode),
           mono: true,
         },
         {
           id: "type",
-          label: "Type",
+          label: t("type"),
           value: selectedNode.kind,
           tone: "muted",
           mono: true,
         },
         selectedPath && {
           id: "path",
-          label: "Path",
+          label: t("path"),
           value: selectedPath,
           tone: "muted",
           mono: true,
         },
         {
           id: "children",
-          label: "Children",
+          label: t("children"),
           value: selectedInfo?.childCount ?? selectedChildCount,
           mono: true,
         },
         selectedInfo && {
           id: "visibility",
-          label: "Loaded visibility",
+          label: t("loaded_visibility"),
           value: selectedInfo.visible ? "Visible" : "Hidden",
           tone: selectedInfo.visible ? "ok" : "warn",
         },
         selectedPayloadState && {
           id: "payload",
-          label: "Payload",
+          label: t("payload"),
           value: selectedPayloadState,
           mono: true,
         },
@@ -237,19 +244,19 @@ function HierarchyCardContent({
     ? [
         {
           id: "position",
-          label: "Position",
+          label: t("position"),
           value: formatPreviewVector(selectedInfo.position),
           mono: true,
         },
         {
           id: "rotation",
-          label: "Rotation",
+          label: t("rotation"),
           value: formatPreviewVector(selectedInfo.rotation),
           mono: true,
         },
         {
           id: "scale",
-          label: "Scale",
+          label: t("scale"),
           value: formatPreviewVector(selectedInfo.scale),
           mono: true,
         },
@@ -260,20 +267,20 @@ function HierarchyCardContent({
         selectedInfo.vertexCount !== null &&
           selectedInfo.vertexCount !== undefined && {
             id: "vertices",
-            label: "Vertices",
-            value: selectedInfo.vertexCount.toLocaleString(),
+            label: t("vertices"),
+            value: formatNumber(selectedInfo.vertexCount),
             mono: true,
           },
         selectedInfo.triangleCount !== null &&
           selectedInfo.triangleCount !== undefined && {
             id: "triangles",
-            label: "Triangles",
-            value: selectedInfo.triangleCount.toLocaleString(),
+            label: t("triangles"),
+            value: formatNumber(selectedInfo.triangleCount),
             mono: true,
           },
         selectedInfo.boundingBox && {
           id: "bounds",
-          label: "Bounds",
+          label: t("bounds"),
           value: formatBounds(selectedInfo.boundingBox),
           mono: true,
         },
@@ -283,14 +290,33 @@ function HierarchyCardContent({
     ? [
         {
           id: "materials",
-          label: "Materials",
+          label: t("materials"),
           value:
-            selectedInfo.materialNames.length > 0
-              ? selectedInfo.materialNames.join(", ")
-              : selectedInfo.materialIds.length > 0
-                ? selectedInfo.materialIds.join(", ")
-                : "(none)",
-          mono: true,
+            onSelectMaterial && selectedInfo.materialIds.length > 0 ? (
+              <span className="selected-material-links">
+                {selectedInfo.materialIds.map((materialId, index) => {
+                  const label = selectedInfo.materialNames[index] ?? materialId;
+                  return (
+                    <button
+                      className="selected-material-link"
+                      key={materialId}
+                      onClick={() => onSelectMaterial(materialId)}
+                      title={materialId}
+                      type="button"
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </span>
+            ) : selectedInfo.materialNames.length > 0 ? (
+              selectedInfo.materialNames.join(", ")
+            ) : selectedInfo.materialIds.length > 0 ? (
+              selectedInfo.materialIds.join(", ")
+            ) : (
+              "(none)"
+            ),
+          mono: !onSelectMaterial,
         },
       ]
     : [];
@@ -299,7 +325,7 @@ function HierarchyCardContent({
       ? [
           {
             id: "animation-clips",
-            label: "Animation Clips",
+            label: t("animation_clips"),
             value: selectedInfo.animatesWithClips.join(", "),
             mono: true,
           },
@@ -320,13 +346,13 @@ function HierarchyCardContent({
       >
         <SidebarListSection
           className="hierarchy-section"
-          title="Outliner"
+          title={t("outliner")}
           bodyClassName="hierarchy-pane-scroll hierarchy-outliner-body yl-disclosure__body"
           search={{
-            ariaLabel: "Filter hierarchy",
-            clearLabel: "Clear hierarchy filter",
+            ariaLabel: t("filter.hierarchy"),
+            clearLabel: t("filter.clearHierarchy"),
             onChange: setSearchQuery,
-            placeholder: "Search hierarchy",
+            placeholder: t("search_hierarchy"),
             value: searchQuery,
           }}
         >
@@ -345,7 +371,7 @@ function HierarchyCardContent({
       </Panel>
 
       <PanelResizeHandle
-        aria-label="Resize outliner details"
+        aria-label={t("resize_outliner_details")}
         className="hierarchy-resize-handle"
       />
 
@@ -361,37 +387,37 @@ function HierarchyCardContent({
               className="yl-disclosure__chevron"
               aria-hidden="true"
             />
-            <span className="yl-disclosure__title">Selected</span>
+            <span className="yl-disclosure__title">{t("selected")}</span>
           </div>
           <div className="hierarchy-pane-scroll yl-disclosure__body">
             {selectedNode ? (
               <div className="selected-kv">
                 <SelectedInspectorSection
-                  title="Identity"
+                  title={t("identity")}
                   rows={selectedIdentityRows}
                 />
                 {selectedTransformRows.length > 0 ? (
                   <SelectedInspectorSection
-                    title="Transform"
+                    title={t("transform")}
                     note={selectedTransformNote}
                     rows={selectedTransformRows}
                   />
                 ) : null}
                 {selectedGeometryRows.length > 0 ? (
                   <SelectedInspectorSection
-                    title="Geometry"
+                    title={t("geometry")}
                     rows={selectedGeometryRows}
                   />
                 ) : null}
                 {selectedMaterialRows.length > 0 ? (
                   <SelectedInspectorSection
-                    title="Materials"
+                    title={t("materials")}
                     rows={selectedMaterialRows}
                   />
                 ) : null}
                 {selectedAnimationRows.length > 0 ? (
                   <SelectedInspectorSection
-                    title="Animation"
+                    title={t("animation")}
                     rows={selectedAnimationRows}
                   />
                 ) : null}
@@ -402,7 +428,7 @@ function HierarchyCardContent({
                 {normalizedSelected && selectedMorphTargets.length > 0 ? (
                   <div className="selected-morph-section">
                     <div className="selected-morph-head">
-                      <span>Shape Keys</span>
+                      <span>{t("shape_keys")}</span>
                       <Button
                         className="u-ml-auto"
                         size="sm"
@@ -417,7 +443,7 @@ function HierarchyCardContent({
                           }
                         }}
                       >
-                        Reset All
+                        {t("reset_all")}
                       </Button>
                     </div>
                     <div className="selected-morph-list">
@@ -468,7 +494,7 @@ function HierarchyCardContent({
               </div>
             ) : (
               <p className="sidebar-empty">
-                Select a row to inspect node details.
+                {t("select_a_row_to_inspect_node_details")}
               </p>
             )}
           </div>

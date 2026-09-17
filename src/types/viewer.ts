@@ -15,6 +15,7 @@ import type {
 } from "three";
 import type { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { PackRuntime } from "./format-pack";
+import type { LocalizedMessage } from "../lib/localizedMessage";
 
 // ── Viewer mode & feedback ───────────────────────────────────────
 
@@ -33,6 +34,7 @@ export type ViewerFeedback = {
   mode: ViewerMode;
   message: string;
   warning: string | null;
+  warningTranslation?: LocalizedMessage;
   canResetCamera: boolean;
 };
 
@@ -488,6 +490,7 @@ export type TextureEntry = {
 // ── Material texture slot ────────────────────────────────────────
 
 export type MaterialTextureSlot = {
+  textureId?: string;
   name: string;
   sourcePath?: string;
 };
@@ -533,6 +536,8 @@ export type MaterialEntry = {
   emissiveFactor: [number, number, number] | null;
   baseColorTexture: MaterialTextureSlot | null;
   metallicRoughnessTexture: MaterialTextureSlot | null;
+  roughnessTexture?: MaterialTextureSlot | null;
+  alphaTexture?: MaterialTextureSlot | null;
   normalTexture: MaterialTextureSlot | null;
   emissiveTexture: MaterialTextureSlot | null;
   alphaMode: "OPAQUE" | "MASK" | "BLEND" | "unknown";
@@ -731,6 +736,8 @@ export type BuildImageToolbarOptions = {
 // ── 3D toolbar ───────────────────────────────────────────────────
 
 export type Build3DToolbarOptions = {
+  ambientOcclusionEnabled?: boolean;
+  onToggleAmbientOcclusion?: () => void;
   cameraPreset: string | null;
   cameraPresetOptions: Array<{ id: string; label: string }>;
   onSelectCameraPreset?: (preset: string) => void;

@@ -155,6 +155,30 @@ describe("HierarchyCard selection sync (#33)", () => {
     expect(onSelect).toHaveBeenCalledTimes(1);
   });
 
+  it("searches authored dotted names while retaining the runtime selection key", () => {
+    const boneTree: HierarchyNode[] = [
+      {
+        name: "thigh_stretchl",
+        displayName: "thigh_stretch.l",
+        kind: "bone",
+        children: [],
+      },
+    ];
+    const onSelect = vi.fn();
+    const { container, getByRole, getAllByText } = render(
+      <HierarchyCard hierarchy={boneTree} onSelectName={onSelect} />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "Search hierarchy" }));
+    fireEvent.change(getByRole("textbox", { name: "Filter hierarchy" }), {
+      target: { value: ".l" },
+    });
+
+    expect(getAllByText("thigh_stretch.l")).toHaveLength(1);
+    fireEvent.click(container.querySelector(".tree-row")!);
+    expect(onSelect).toHaveBeenCalledWith("thigh_stretchl");
+  });
+
   it("force-opens ancestor branches so the selected row is visible", () => {
     // The tree's default expansion stops at depth < 2, so without the
     // force-open path the leaf "Arm" (depth 3) would stay collapsed
@@ -462,6 +486,28 @@ describe("HierarchyCard selection sync (#33)", () => {
     expect(blink.value).toBe("0.25");
     fireEvent.change(blink, { target: { value: "0.75" } });
     expect(onMorphTargetChange).toHaveBeenCalledWith("/World/Face", 0, 0.75);
+  });
+
+  it("opens a material only from the explicit selected-material link", () => {
+    const onSelectMaterial = vi.fn();
+    const materialInfo: ObjectInfo = {
+      ...faceInfo,
+      materialNames: ["Hair"],
+      materialIds: ["/World/Looks/Hair"],
+    };
+    const { getByRole } = render(
+      <HierarchyCard
+        hierarchy={[{ name: "Face", kind: "mesh", children: [] }]}
+        objectInfo={{ Face: materialInfo }}
+        onSelectMaterial={onSelectMaterial}
+        selectedName="Face"
+      />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "Hair" }));
+
+    expect(onSelectMaterial).toHaveBeenCalledOnce();
+    expect(onSelectMaterial).toHaveBeenCalledWith("/World/Looks/Hair");
   });
 
   it("renders MMD bone parameters for the selected bone", () => {

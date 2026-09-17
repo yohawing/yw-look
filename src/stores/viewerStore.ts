@@ -17,6 +17,7 @@ import type {
 } from "../lib/usd";
 
 export interface ViewerState {
+  ambientOcclusionEnabled: boolean;
   showTexture: boolean;
   showWireframe: boolean;
   showUnlit: boolean;
@@ -65,6 +66,17 @@ export interface ViewerState {
   variantSelections: VariantSelection[];
   variantSelectionError: string | null;
   scaleNormalization: { applied: boolean; factor: number } | null;
+  textureNavigationRequest: {
+    textureId: string;
+    channel: string;
+    revision: number;
+  } | null;
+  requestTextureNavigation: (textureId: string, channel: string) => void;
+  clearTextureNavigationRequest: () => void;
+  materialNavigationRequest: {
+    materialId: string;
+    revision: number;
+  } | null;
 
   setShowTexture: (v: boolean) => void;
   setShowWireframe: (v: boolean) => void;
@@ -79,6 +91,7 @@ export interface ViewerState {
   setShowVertexColors: (v: boolean) => void;
   setShowEnvironmentBackground: (v: boolean) => void;
   setShowShadows: (v: boolean) => void;
+  setAmbientOcclusionEnabled: (v: boolean) => void;
   setEnvironmentPreset: (v: EnvironmentPreset) => void;
   setEnvironmentRotation: (v: number) => void;
   setBackgroundPreset: (v: BackgroundPreset) => void;
@@ -101,6 +114,8 @@ export interface ViewerState {
   setScaleNormalization: (
     v: { applied: boolean; factor: number } | null,
   ) => void;
+  requestMaterialNavigation: (materialId: string) => void;
+  clearMaterialNavigationRequest: () => void;
 
   toggleShowTexture: () => void;
   toggleShowWireframe: () => void;
@@ -109,6 +124,7 @@ export interface ViewerState {
   toggleShowNormals: () => void;
   toggleShowVertexColors: () => void;
   toggleShowShadows: () => void;
+  toggleAmbientOcclusion: () => void;
   toggleShowEnvironmentBackground: () => void;
   toggleShowBoundingBoxes: () => void;
   toggleShowSkeleton: () => void;
@@ -118,6 +134,7 @@ export interface ViewerState {
 }
 
 export const useViewerStore = create<ViewerState>((set) => ({
+  ambientOcclusionEnabled: true,
   showTexture: true,
   showWireframe: false,
   showUnlit: false,
@@ -174,6 +191,18 @@ export const useViewerStore = create<ViewerState>((set) => ({
   variantSelections: [],
   variantSelectionError: null,
   scaleNormalization: null,
+  textureNavigationRequest: null,
+  requestTextureNavigation: (textureId, channel) =>
+    set((state) => ({
+      selectedTextureId: textureId,
+      textureNavigationRequest: {
+        textureId,
+        channel,
+        revision: (state.textureNavigationRequest?.revision ?? 0) + 1,
+      },
+    })),
+  clearTextureNavigationRequest: () => set({ textureNavigationRequest: null }),
+  materialNavigationRequest: null,
 
   setShowTexture: (showTexture) => set({ showTexture }),
   setShowWireframe: (showWireframe) => set({ showWireframe }),
@@ -189,6 +218,8 @@ export const useViewerStore = create<ViewerState>((set) => ({
   setShowEnvironmentBackground: (showEnvironmentBackground) =>
     set({ showEnvironmentBackground }),
   setShowShadows: (showShadows) => set({ showShadows }),
+  setAmbientOcclusionEnabled: (ambientOcclusionEnabled) =>
+    set({ ambientOcclusionEnabled }),
   setEnvironmentPreset: (environmentPreset) => set({ environmentPreset }),
   setEnvironmentRotation: (environmentRotation) => {
     if (Number.isFinite(environmentRotation)) set({ environmentRotation });
@@ -212,6 +243,15 @@ export const useViewerStore = create<ViewerState>((set) => ({
   setVariantSelectionError: (variantSelectionError) =>
     set({ variantSelectionError }),
   setScaleNormalization: (scaleNormalization) => set({ scaleNormalization }),
+  requestMaterialNavigation: (materialId) =>
+    set((state) => ({
+      materialNavigationRequest: {
+        materialId,
+        revision: (state.materialNavigationRequest?.revision ?? 0) + 1,
+      },
+    })),
+  clearMaterialNavigationRequest: () =>
+    set({ materialNavigationRequest: null }),
 
   toggleShowTexture: () => set((s) => ({ showTexture: !s.showTexture })),
   toggleShowWireframe: () => set((s) => ({ showWireframe: !s.showWireframe })),
@@ -221,6 +261,10 @@ export const useViewerStore = create<ViewerState>((set) => ({
   toggleShowVertexColors: () =>
     set((s) => ({ showVertexColors: !s.showVertexColors })),
   toggleShowShadows: () => set((s) => ({ showShadows: !s.showShadows })),
+  toggleAmbientOcclusion: () =>
+    set((s) => ({
+      ambientOcclusionEnabled: !s.ambientOcclusionEnabled,
+    })),
   toggleShowEnvironmentBackground: () =>
     set((s) => ({
       showEnvironmentBackground: !s.showEnvironmentBackground,
@@ -235,6 +279,12 @@ export const useViewerStore = create<ViewerState>((set) => ({
     set((s) => ({ showJointNames: !s.showJointNames })),
   updateViewerFeedback: (partial) =>
     set((s) => ({
-      viewerFeedback: { ...s.viewerFeedback, ...partial },
+      viewerFeedback: {
+        ...s.viewerFeedback,
+        ...(Object.hasOwn(partial, "warning")
+          ? { warningTranslation: undefined }
+          : {}),
+        ...partial,
+      },
     })),
 }));

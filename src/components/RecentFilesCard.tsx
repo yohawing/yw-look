@@ -1,3 +1,4 @@
+import { t, useLocale } from "../lib/i18n";
 import type { RecentFilesPayload } from "../lib/recentFiles";
 import { formatFileKindLabel } from "../lib/fileKindLabel";
 import { AsyncSidebarSection, SidebarEmpty } from "../lib/sidebarPrimitives";
@@ -18,12 +19,13 @@ export function RecentFilesCard({
   recentFilesError,
   onOpenPath,
 }: RecentFilesCardProps) {
+  useLocale();
   return (
     <AsyncSidebarSection
-      title="Recent Files"
+      title={t("recent_files")}
       error={recentFilesError}
       data={recentFilesPayload}
-      loadingLabel="Loading recent files."
+      loadingLabel={t("recent.loading")}
       count={(payload) => payload.entries.length}
     >
       {(payload) =>
@@ -38,7 +40,7 @@ export function RecentFilesCard({
             }))}
           />
         ) : (
-          <SidebarEmpty>No recent files recorded yet.</SidebarEmpty>
+          <SidebarEmpty>{t("no_recent_files_recorded_yet")}</SidebarEmpty>
         )
       }
     </AsyncSidebarSection>

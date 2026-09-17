@@ -1,3 +1,4 @@
+import { t, useLocale } from "../lib/i18n";
 import { useCallback, useEffect, useMemo } from "react";
 import {
   buildDiagnosticCounts,
@@ -64,6 +65,7 @@ export function useViewerDiagnosticsModel({
   usdSummary,
   viewerFeedback,
 }: UseViewerDiagnosticsModelOptions) {
+  const locale = useLocale();
   const setActiveTab = useUiStore((state) => state.setActiveTab);
   const setSidebarOpen = useUiStore((state) => state.setSidebarOpen);
   const debugPanelsEnabled = isDebugPanelsRequested();
@@ -99,28 +101,7 @@ export function useViewerDiagnosticsModel({
     return true;
   }, []);
 
-  const viewerStatusLabel = useMemo(() => {
-    switch (viewerFeedback.mode) {
-      case "loading":
-        return "loading preview";
-      case "ready":
-        return "preview ready";
-      case "unsupported":
-        return "unsupported format";
-      case "missingOptionalLoader":
-        return "optional loader missing";
-      case "disabledOptionalLoader":
-        return "optional loader disabled";
-      case "incompatibleOptionalLoader":
-        return "optional loader incompatible";
-      case "loadFailed":
-        return "preview failed";
-      case "missingReference":
-        return "missing external resource";
-      default:
-        return "idle";
-    }
-  }, [viewerFeedback.mode]);
+  const viewerStatusLabel = t(`status.${viewerFeedback.mode}`);
 
   const currentFileSummary = useMemo(() => {
     if (!sidebarCurrentFile) {
@@ -144,7 +125,7 @@ export function useViewerDiagnosticsModel({
       usdIssues,
       viewerFeedback,
     });
-  }, [assetMetadata, usdCapabilities, usdIssues, viewerFeedback]);
+  }, [locale, assetMetadata, usdCapabilities, usdIssues, viewerFeedback]);
   const sidebarWarnings = useDebugFixtures
     ? debugFixtures.debugPanelWarnings
     : warnings;
@@ -255,11 +236,11 @@ export function useViewerDiagnosticsModel({
     if (diagnosticCounts.total > 0) {
       const label =
         diagnosticCounts.errorCount > 0
-          ? `${diagnosticCounts.errorCount} error${diagnosticCounts.errorCount === 1 ? "" : "s"}`
-          : `${diagnosticCounts.warningCount} warning${diagnosticCounts.warningCount === 1 ? "" : "s"}`;
+          ? t("status.errors", { count: diagnosticCounts.errorCount })
+          : t("status.warnings", { count: diagnosticCounts.warningCount });
       items.push({
         id: "diagnostics",
-        content: `Diagnostics: ${label}`,
+        content: t("status.diagnostics", { label }),
         onClick: openDiagnosticsPanel,
         tone: diagnosticCounts.errorCount > 0 ? "danger" : "warning",
       });
@@ -267,6 +248,7 @@ export function useViewerDiagnosticsModel({
 
     return items;
   }, [
+    locale,
     diagnosticCounts.errorCount,
     diagnosticCounts.total,
     diagnosticCounts.warningCount,
@@ -288,14 +270,14 @@ export function useViewerDiagnosticsModel({
     if (updateCheck?.update) {
       items.unshift({
         id: "update-available",
-        content: `Update: ${updateCheck.update.version}`,
+        content: t("status.update", { version: updateCheck.update.version }),
         onClick: openUpdatePanel,
         tone: "warning",
       });
     }
 
     return items;
-  }, [currentFileSummary, openUpdatePanel, updateCheck]);
+  }, [locale, currentFileSummary, openUpdatePanel, updateCheck]);
 
   return {
     currentFileSummary,

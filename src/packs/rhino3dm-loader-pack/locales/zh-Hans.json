@@ -1,0 +1,4 @@
+{
+  "load_failed": "无法加载Rhino 3DM预览：{{detail}}",
+  "unavailable": "未安装Rhino 3DM加载器。请安装对应的加载器包。"
+}

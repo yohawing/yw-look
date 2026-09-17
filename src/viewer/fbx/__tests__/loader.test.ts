@@ -14,6 +14,8 @@ import {
   Texture,
 } from "three";
 import type { SelectedFile } from "../../../lib/files";
+import { collectAssetMetadata } from "../../metadata";
+import { resolveObjectSelectionKey } from "../../selectionKeys";
 import {
   createStaticSceneObject,
   toStaticScenePayload,
@@ -227,6 +229,62 @@ describe("FBX missing texture fallback", () => {
     expect(motionBone.type).toBe("Bone");
   });
 
+  it.each([false, true])(
+    "keeps material parts under their authored mesh after worker restore=%s",
+    (restore) => {
+      let root = new Group();
+      root.name = "Scene";
+      const body = new Group();
+      body.name = "Body";
+      body.userData.fbxMesh = true;
+      const part = new Mesh(new BoxGeometry(), new MeshStandardMaterial());
+      part.name = "Body_1";
+      const authoredChild = new Mesh(
+        new BoxGeometry(),
+        new MeshStandardMaterial(),
+      );
+      authoredChild.name = "Accessory";
+      authoredChild.userData.fbxMesh = true;
+      body.add(part, authoredChild);
+      root.add(body);
+      if (restore)
+        root = createStaticSceneObject(
+          toStaticScenePayload(root, true)!,
+        ) as Group;
+      applyFbxNativeNodeMetadata(root);
+      const restoredBody = root.children[0];
+      expect(restoredBody.children).toHaveLength(2);
+      expect(resolveObjectSelectionKey(restoredBody.children[0])).toBe("Body");
+      expect(resolveObjectSelectionKey(restoredBody.children[1])).toBe(
+        "Accessory",
+      );
+      const { metadata } = collectAssetMetadata(
+        root,
+        {
+          path: "/Body.fbx",
+          fileName: "Body.fbx",
+          extension: "fbx",
+          kind: "model",
+          parentDirectory: "/",
+        },
+        [],
+        null,
+      );
+      expect(metadata.hierarchy[0].children[0]).toMatchObject({
+        name: "Body",
+        kind: "mesh",
+        children: [{ name: "Accessory" }],
+      });
+      expect(metadata.hierarchy[0].children[0].children).toHaveLength(1);
+      // A material part must not replace the authored object's inspector entry.
+      expect(metadata.objectInfo.Body.kind).toBe("group");
+      expect(metadata.objectInfo.Body.materialIds).toHaveLength(2);
+      expect(
+        new Set(metadata.materials.map((material) => material.id)),
+      ).toEqual(new Set(metadata.objectInfo.Body.materialIds));
+    },
+  );
+
   it("uses authored, basename, Textures, then parent Texture candidates", () => {
     expect(
       resolveTextureCandidates("../Texture/Parts01.png", "F:\\pkg\\fbx"),
@@ -246,6 +304,7 @@ describe("FBX missing texture fallback", () => {
     ).not.toBe(true);
     expect(texture.colorSpace).toBe("srgb");
     expect(texture.image).toBeNull();
+    expect(texture.version).toBe(0);
   });
 
   it("copies decoded pixels without discarding FBX sampler transforms", () => {
@@ -277,7 +336,7 @@ describe("FBX missing texture fallback", () => {
     expect(target.rotation).toBe(0.75);
     expect(target.flipY).toBe(false);
     expect(target.colorSpace).toBe("srgb");
-    expect(target.version).toBeGreaterThan(1);
+    expect(target.version).toBeGreaterThan(0);
   });
 
   it("removes failed texture slots from registered materials", () => {
@@ -801,8 +860,44 @@ describe("hydrateFbxDeferredTexturePlaceholders", () => {
     expect(material.map).toBe(replacement);
     expect(replacement.offset.toArray()).toEqual([0.3, 0.4]);
     expect(replacement.repeat.toArray()).toEqual([1, -1]);
-    // Texture.needsUpdate is write-only in three.js; version bump proves it ran.
-    expect(replacement.version).toBeGreaterThan(0);
+    // Invalid dimension-only placeholders stay unuploaded until decode finishes.
+    expect(replacement.version).toBe(0);
+  });
+
+  it("restores serialized ImageData before uploading a deferred texture", () => {
+    class TestImageData {
+      readonly colorSpace = "srgb";
+
+      constructor(
+        readonly data: Uint8ClampedArray,
+        readonly width: number,
+        readonly height: number,
+      ) {}
+    }
+    vi.stubGlobal("ImageData", TestImageData);
+    try {
+      const placeholder = new Texture();
+      placeholder.userData.fbxSourceName = "grey.png";
+      placeholder.userData.fbxDeferred = true;
+      placeholder.image = {
+        data: new Uint8ClampedArray([128, 128, 128, 255]),
+        width: 1,
+        height: 1,
+      };
+      const material = new MeshStandardMaterial({ map: placeholder });
+      const replacement = new Texture();
+
+      hydrateFbxDeferredTexturePlaceholders(
+        new Mesh(new BufferGeometry(), material),
+        vi.fn(() => replacement),
+      );
+
+      expect(material.map).toBe(replacement);
+      expect(replacement.image).toBeInstanceOf(TestImageData);
+      expect(replacement.version).toBeGreaterThan(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("skips textures without fbxSourceName", () => {

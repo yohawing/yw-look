@@ -1,3 +1,4 @@
+import { t, useLocale } from "../lib/i18n";
 import { useState } from "react";
 import { openAppLogDir } from "../lib/diagnostics";
 import type { CrashRecoveryPayload } from "../lib/crashRecovery";
@@ -8,6 +9,7 @@ type CrashRecoveryNoticeProps = {
 };
 
 export function CrashRecoveryNotice({ status }: CrashRecoveryNoticeProps) {
+  useLocale();
   const [dismissed, setDismissed] = useState(false);
 
   if (!status?.previousCrashDetected || dismissed) {
@@ -17,23 +19,20 @@ export function CrashRecoveryNotice({ status }: CrashRecoveryNoticeProps) {
   const detail =
     status.previousPid !== null
       ? `PID ${status.previousPid}`
-      : "previous session";
+      : t("crash.previousSession");
 
   return (
     <section className="crash-recovery-notice" role="alert">
       <div>
-        <h2>Previous Session Ended Unexpectedly</h2>
-        <p>
-          yw-look found an uncleared run marker from {detail}. Review the logs
-          before retrying the same asset.
-        </p>
+        <h2>{t("previous_session_ended_unexpectedly")}</h2>
+        <p>{t("crash.detail", { session: detail })}</p>
       </div>
       <div className="crash-recovery-notice__actions">
         <button type="button" onClick={() => void openAppLogDir()}>
-          Open Logs
+          {t("open_logs")}
         </button>
         <button type="button" onClick={() => setDismissed(true)}>
-          Dismiss
+          {t("dismiss")}
         </button>
       </div>
     </section>

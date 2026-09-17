@@ -1,3 +1,5 @@
+import "./locales";
+import { LocalizedError } from "../../lib/localizedMessage";
 import { Group, Vector3 } from "three";
 import { errorMessage } from "../../lib/errors";
 import type { SelectedFile } from "../../lib/files";
@@ -144,8 +146,13 @@ export async function loadSparkPreviewObject(
       throw error;
     }
     const message = errorMessage(error, "Unknown error");
-    throw new Error(`Unable to load Gaussian Splat preview: ${message}`, {
-      cause: error,
-    });
+    throw new LocalizedError(
+      "gaussian-splat-loader-pack:load_failed",
+      `Unable to load Gaussian Splat preview: ${message}`,
+      { detail: message },
+      {
+        cause: error,
+      },
+    );
   }
 }

@@ -1,10 +1,13 @@
 import { buildIfcHierarchy } from "../lib/ifcHierarchy";
+import { t, useLocale } from "../lib/i18n";
+import { SidebarSection } from "../lib/sidebarPrimitives";
 import { useCallback, useMemo } from "react";
 import { useDebugPanelFixtures } from "../hooks/useDebugPanelFixtures";
 import { isUsdFile } from "../lib/files";
 import type { StageSessionHandle, StageInspection } from "../lib/usd";
 import { useFileStore } from "../stores/fileStore";
 import { useViewerStore } from "../stores/viewerStore";
+import { useUiStore } from "../stores/uiStore";
 import type { HierarchyNode, ObjectInfo } from "./assetMetadata";
 import { HierarchyCard } from "./HierarchyCard";
 import { UsdSelectedSources } from "./UsdSelectedSources";
@@ -47,6 +50,7 @@ export function HierarchySidebarPanel({
   onLoadPayload,
   onUnloadPayload,
 }: HierarchySidebarPanelProps) {
+  useLocale();
   const currentFile = useFileStore((state) => state.currentFile);
   const storeAssetMetadata = useFileStore((state) => state.assetMetadata);
   const packMetadata = useFileStore((state) => state.packMetadata);
@@ -59,6 +63,16 @@ export function HierarchySidebarPanel({
   );
   const morphTargetValues = useViewerStore((state) => state.morphTargetValues);
   const selectedMeshName = useViewerStore((state) => state.selectedMeshName);
+  const ifcElementId = /^ifc:(\d+)$/.exec(selectedMeshName ?? "")?.[1];
+  const ifcMaterials =
+    packMetadata?.kind === "ifc" ? packMetadata.inspection.materials : null;
+  const selectedIfcMaterials =
+    ifcElementId && ifcMaterials
+      ? [
+          ...ifcMaterials.building,
+          ...ifcMaterials.display.filter((entry) => entry.origin === "source"),
+        ].filter((entry) => entry.elementIds.includes(Number(ifcElementId)))
+      : [];
   const { debugFixtures, useDebugFixtures } =
     useDebugPanelFixtures(debugPanelsEnabled);
   const assetMetadata = useDebugFixtures
@@ -98,6 +112,12 @@ export function HierarchySidebarPanel({
     useViewerStore.getState().setSelectedUsdPrimPath(primPath);
   }, []);
 
+  const handleSelectMaterial = useCallback((materialId: string) => {
+    useViewerStore.getState().requestMaterialNavigation(materialId);
+    useUiStore.getState().setActiveTab("materials");
+    useUiStore.getState().setSidebarOpen(true);
+  }, []);
+
   return (
     <>
       <HierarchyCard
@@ -113,6 +133,7 @@ export function HierarchySidebarPanel({
         onSelectPrimPath={
           isUsdFile(currentFile) ? handleSelectPrimPath : undefined
         }
+        onSelectMaterial={handleSelectMaterial}
         payloadPrimPaths={payloadSessionEnabled ? payloadPrimPaths : undefined}
         unloadedPayloadPaths={
           payloadSessionEnabled ? unloadedPayloadPaths : undefined
@@ -121,6 +142,23 @@ export function HierarchySidebarPanel({
         onUnloadPayload={payloadSessionEnabled ? onUnloadPayload : undefined}
         renderSelectedObjectDetails={(info, primPath) => (
           <>
+            {!useDebugFixtures && selectedIfcMaterials.length > 0 ? (
+              <SidebarSection title={t("materials")}>
+                <span className="selected-material-links">
+                  {selectedIfcMaterials.map((material) => (
+                    <button
+                      type="button"
+                      className="selected-material-link"
+                      key={material.id}
+                      onClick={() => handleSelectMaterial(material.id)}
+                      title={material.id}
+                    >
+                      {material.name}
+                    </button>
+                  ))}
+                </span>
+              </SidebarSection>
+            ) : null}
             {!useDebugFixtures && packMetadata?.kind === "ifc"
               ? renderMetadataCardForPackMetadata(packMetadata, {
                   view: "selection",

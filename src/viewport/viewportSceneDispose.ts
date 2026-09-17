@@ -6,7 +6,7 @@ import type {
   WebGLRenderTarget,
 } from "three";
 import type { CSS2DRenderer } from "three/examples/jsm/renderers/CSS2DRenderer.js";
-import type { FxaaComposerState } from "./fxaa";
+import { disposeViewportComposer, type ViewportComposerState } from "./fxaa";
 import { runCleanupCallbacksSafely } from "./renderSettings";
 import {
   resetSceneObjects,
@@ -27,7 +27,7 @@ type DisposeViewportSceneOptions = {
   environmentTargetRef: Ref<WebGLRenderTarget | null>;
   environmentTargetsRef: Ref<Map<EnvironmentPreset, WebGLRenderTarget> | null>;
   fillLightRef: Ref<DirectionalLight | null>;
-  fxaaStateRef: Ref<FxaaComposerState | null>;
+  fxaaStateRef: Ref<ViewportComposerState | null>;
   host: HTMLElement;
   keyLightRef: Ref<DirectionalLight | null>;
   labelRenderer: CSS2DRenderer;
@@ -77,7 +77,7 @@ export function disposeViewportScene({
   environmentTargetsRef.current?.clear();
   environmentTargetsRef.current = null;
   environmentTargetRef.current = null;
-  fxaaStateRef.current?.composer.dispose();
+  if (fxaaStateRef.current) disposeViewportComposer(fxaaStateRef.current);
   fxaaStateRef.current = null;
   ambientLightRef.current = null;
   keyLightRef.current = null;

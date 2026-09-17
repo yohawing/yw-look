@@ -23,20 +23,18 @@ describe("SettingsCard", () => {
     cleanup();
   });
 
-  it("renders update preferences as a label and toggle row", () => {
-    const { getByRole, getByText, queryByText } = render(
+  it("keeps update preferences out of the settings card", () => {
+    const { queryByText } = render(
       <SettingsCard
         settingsPayload={settingsPayload}
         settingsError={null}
         optionalLoaderPacks={[]}
-        onToggleAutoCheckForUpdates={() => undefined}
         onToggleOptionalLoaderPack={() => undefined}
       />,
     );
 
-    expect(getByText("Update Preferences")).toBeTruthy();
-    expect(getByText("Auto-check updates")).toBeTruthy();
-    expect(getByRole("switch", { name: "Auto-check updates" })).toBeTruthy();
+    expect(queryByText("Update Preferences")).toBeNull();
+    expect(queryByText("Auto-check updates")).toBeNull();
     expect(queryByText("File associations")).toBeNull();
     expect(queryByText("Support")).toBeNull();
     expect(queryByText("Enabled")).toBeNull();
@@ -81,7 +79,6 @@ describe("SettingsCard", () => {
             },
           },
         ]}
-        onToggleAutoCheckForUpdates={() => undefined}
         onToggleOptionalLoaderPack={() => undefined}
       />,
     );
@@ -122,7 +119,6 @@ describe("SettingsCard", () => {
         fileAssociationsAvailable
         optionalLoaderPacks={[]}
         onOpenDefaultAppsSettings={onOpenDefaultAppsSettings}
-        onToggleAutoCheckForUpdates={() => undefined}
         onToggleFileAssociations={onToggleFileAssociations}
         onToggleOptionalLoaderPack={() => undefined}
       />,
@@ -153,7 +149,6 @@ describe("SettingsCard", () => {
         }}
         fileAssociationsAvailable
         optionalLoaderPacks={[]}
-        onToggleAutoCheckForUpdates={() => undefined}
         onToggleOptionalLoaderPack={() => undefined}
       />,
     );
@@ -177,7 +172,6 @@ describe("SettingsCard", () => {
         optionalLoaderPacks={[]}
         onOpenDefaultAppsSettings={onOpenDefaultAppsSettings}
         onRetryFileAssociations={onRetryFileAssociations}
-        onToggleAutoCheckForUpdates={() => undefined}
         onToggleFileAssociations={onToggleFileAssociations}
         onToggleOptionalLoaderPack={() => undefined}
       />,
@@ -218,7 +212,6 @@ describe("SettingsCard", () => {
             },
           },
         ]}
-        onToggleAutoCheckForUpdates={() => undefined}
         onToggleOptionalLoaderPack={onToggleOptionalLoaderPack}
       />,
     );
@@ -236,7 +229,6 @@ describe("SettingsCard", () => {
         settingsPayload={settingsPayload}
         settingsError={null}
         optionalLoaderPacks={[]}
-        onToggleAutoCheckForUpdates={() => undefined}
         onToggleOptionalLoaderPack={() => undefined}
       />,
     );
@@ -252,7 +244,6 @@ describe("SettingsCard", () => {
         settingsPayload={null}
         settingsError={null}
         optionalLoaderPacks={[]}
-        onToggleAutoCheckForUpdates={() => undefined}
         onToggleOptionalLoaderPack={() => undefined}
       />,
     );
@@ -269,7 +260,6 @@ describe("SettingsCard", () => {
         settingsError={null}
         optionalLoaderPacks={[]}
         optionalLoaderPacksError="Failed to load optional loader pack manifests."
-        onToggleAutoCheckForUpdates={() => undefined}
         onToggleOptionalLoaderPack={() => undefined}
       />,
     );

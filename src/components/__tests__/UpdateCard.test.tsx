@@ -1,3 +1,4 @@
+import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { UpdateCard } from "../UpdateCard";
@@ -34,6 +35,58 @@ describe("UpdateCard", () => {
     cleanup();
   });
 
+  it("waits for settings and reflects saved toggle values in App Updates", () => {
+    const toggle = vi.fn();
+    const props = {
+      onToggleAutoCheckForUpdates: toggle,
+      updateConfiguration: configuration,
+      updateError: null,
+      updateCheck: null,
+      isCheckingForUpdate: false,
+      isInstallingUpdate: false,
+      onCheckForUpdate: vi.fn(),
+      onInstallUpdate: vi.fn(),
+    };
+    const { getByRole, rerender } = render(
+      <UpdateCard {...props} autoCheckForUpdates={null} />,
+    );
+    const control = () => getByRole("switch", { name: "Auto-check updates" });
+    expect(control()).toBeDisabled();
+    fireEvent.click(control());
+    expect(toggle).not.toHaveBeenCalled();
+    rerender(<UpdateCard {...props} autoCheckForUpdates={true} />);
+    expect(control()).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(control());
+    expect(toggle).toHaveBeenCalledTimes(1);
+    rerender(<UpdateCard {...props} autoCheckForUpdates={false} />);
+    expect(control()).toHaveAttribute("aria-checked", "false");
+  });
+
+  it.each([
+    [null, "Up to date"],
+    ["Network unavailable", "Update check failed"],
+  ])("shows the check result in the single card (%s)", (error, state) => {
+    const { getByText, queryByText, getAllByRole } = render(
+      <UpdateCard
+        autoCheckForUpdates={false}
+        onToggleAutoCheckForUpdates={() => undefined}
+        updateConfiguration={configuration}
+        updateError={error}
+        updateCheck={{ configuration, update: null }}
+        isCheckingForUpdate={false}
+        isInstallingUpdate={false}
+        onCheckForUpdate={() => undefined}
+        onInstallUpdate={() => undefined}
+      />,
+    );
+    expect(getByText(state)).toBeTruthy();
+    expect(queryByText("Available update")).toBeNull();
+    expect(getAllByRole("button", { name: "Check for Updates" })).toHaveLength(
+      1,
+    );
+    expect(getAllByRole("button", { name: "Install Update" })).toHaveLength(1);
+  });
+
   it.each([
     { ...configuration, effectiveEndpoint: null },
     { ...configuration, effectivePubkeyAvailable: false },
@@ -44,6 +97,8 @@ describe("UpdateCard", () => {
         install = vi.fn();
       const { getByText, getByRole, queryByText } = render(
         <UpdateCard
+          autoCheckForUpdates={true}
+          onToggleAutoCheckForUpdates={() => undefined}
           updateConfiguration={unavailable}
           updateError="no updater endpoint configured"
           updateCheck={updateCheck}
@@ -76,8 +131,10 @@ describe("UpdateCard", () => {
   );
 
   it("shows current and available versions when an update exists", () => {
-    const { getByText } = render(
+    const { getByText, queryByText } = render(
       <UpdateCard
+        autoCheckForUpdates={true}
+        onToggleAutoCheckForUpdates={() => undefined}
         isCheckingForUpdate={false}
         isInstallingUpdate={false}
         onCheckForUpdate={() => undefined}
@@ -89,14 +146,18 @@ describe("UpdateCard", () => {
     );
 
     expect(getByText("Update available")).toBeTruthy();
-    expect(getByText("0.1.9 -> 0.2.0")).toBeTruthy();
-    expect(getByText("Release notes")).toBeTruthy();
+    expect(getByText("0.1.9")).toBeTruthy();
+    expect(getByText("0.2.0")).toBeTruthy();
+    expect(queryByText("Release notes")).toBeNull();
+    expect(queryByText("Available update")).toBeNull();
   });
 
-  it("calls install from the available update section", () => {
+  it("calls install from the single App Updates action", () => {
     const onInstallUpdate = vi.fn();
     const { getAllByRole } = render(
       <UpdateCard
+        autoCheckForUpdates={true}
+        onToggleAutoCheckForUpdates={() => undefined}
         isCheckingForUpdate={false}
         isInstallingUpdate={false}
         onCheckForUpdate={() => undefined}
@@ -108,7 +169,8 @@ describe("UpdateCard", () => {
     );
 
     const installButtons = getAllByRole("button", { name: "Install Update" });
-    fireEvent.click(installButtons[installButtons.length - 1]);
+    expect(installButtons).toHaveLength(1);
+    fireEvent.click(installButtons[0]);
 
     expect(onInstallUpdate).toHaveBeenCalledTimes(1);
   });

@@ -8,6 +8,14 @@ import type { PackFileRequest, PackMetadata } from "../types/format-pack";
 import type { AssetMetadata } from "../types/viewer";
 
 export interface FileState {
+  externalReload: {
+    path: string;
+    revision: number;
+    status: "loading" | "done" | "failed";
+    error?: string;
+  } | null;
+  requestExternalReload: (file: SelectedFile) => void;
+  finishExternalReload: (revision: number, error?: string) => void;
   currentFile: SelectedFile | null;
   packFileRequest: PackFileRequest | null;
   packMetadata: PackMetadata | null;
@@ -26,6 +34,27 @@ export interface FileState {
 }
 
 export const useFileStore = create<FileState>((set) => ({
+  externalReload: null,
+  requestExternalReload: (file) =>
+    set((state) => {
+      const revision = (state.externalReload?.revision ?? 0) + 1;
+      return {
+        currentFile: { ...file, reloadRevision: revision },
+        externalReload: { path: file.path, revision, status: "loading" },
+      };
+    }),
+  finishExternalReload: (revision, error) =>
+    set((state) =>
+      state.externalReload?.revision === revision
+        ? {
+            externalReload: {
+              ...state.externalReload,
+              status: error ? "failed" : "done",
+              error,
+            },
+          }
+        : {},
+    ),
   currentFile: null,
   packFileRequest: null,
   packMetadata: null,
@@ -34,7 +63,7 @@ export const useFileStore = create<FileState>((set) => ({
   openError: null,
   assetMetadata: null,
 
-  setCurrentFile: (currentFile) => set({ currentFile }),
+  setCurrentFile: (currentFile) => set({ currentFile, externalReload: null }),
   setPackFileRequest: (packFileRequest) => set({ packFileRequest }),
   setPackMetadata: (packMetadata) => set({ packMetadata }),
   setAssetInspection: (assetInspection) => set({ assetInspection }),

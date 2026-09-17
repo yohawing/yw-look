@@ -36,6 +36,7 @@ function makeSidebarOptions(): SidebarModelOptions {
     handleCheckForUpdate: () => Promise.resolve(),
     handleInstallUpdate: () => Promise.resolve(),
     handleLoadPayload: () => Promise.resolve(),
+    handleChangeLanguage: async () => {},
     handleToggleAutoCheckForUpdates: () => Promise.resolve(),
     handleToggleOptionalLoaderPack: () => Promise.resolve(),
     handleUnloadPayload: () => Promise.resolve(),

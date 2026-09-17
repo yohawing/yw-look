@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import type { AppStatusBarItem } from "./AppStatusBar";
 import type { AssetMetadata } from "./assetMetadata";
 import type { ViewerFeedback } from "./AssetViewport";
@@ -38,7 +39,7 @@ export function buildStatusLeftItems({
         id: "viewer",
         content: settingsError
           ? formatStatusError(settingsError)
-          : `Viewer: ${viewerStatusLabel}`,
+          : t("viewer.status", { status: viewerStatusLabel }),
       },
     ];
   }
@@ -48,24 +49,30 @@ export function buildStatusLeftItems({
       id: "file",
       content:
         viewerFeedback.mode === "loading"
-          ? `Loading: ${currentFile.fileName}`
-          : `Model loaded: ${currentFile.fileName}`,
+          ? t("viewer.loading", { file: currentFile.fileName })
+          : t("viewer.loaded", { file: currentFile.fileName }),
     },
   ];
 
   if (assetMetadata && assetMetadata.meshCount > 0) {
-    items.push({ id: "meshes", content: `${assetMetadata.meshCount} meshes` });
+    items.push({
+      id: "meshes",
+      content: t("viewer.meshes", { count: assetMetadata.meshCount }),
+    });
   }
 
   if (assetMetadata && assetMetadata.materialCount > 0) {
     items.push({
       id: "materials",
-      content: `${assetMetadata.materialCount} materials`,
+      content: t("viewer.materials", { count: assetMetadata.materialCount }),
     });
   }
 
   if (showGrid) {
-    items.push({ id: "grid", content: `Grid: ${gridUnitLabel}` });
+    items.push({
+      id: "grid",
+      content: t("viewer.grid", { unit: gridUnitLabel }),
+    });
   }
 
   return items;

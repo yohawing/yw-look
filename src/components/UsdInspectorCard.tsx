@@ -1,3 +1,4 @@
+import { t, useLocale, formatNumber } from "../lib/i18n";
 import type { CSSProperties } from "react";
 import type {
   AssetIssue,
@@ -21,22 +22,18 @@ import {
   type SidebarKeyValueRow,
 } from "../lib/sidebarPrimitives";
 
-const loadPolicyOptions = [
-  { value: "loadAll", label: "Loaded" },
-  { value: "noPayloads", label: "Deferred" },
-] as const;
-
 /** Pretty-print a numeric metadatum, falling back to "(default)" when
  * the stage didn't author the field. The fallback wording is shared
  * across timeCodesPerSecond / framesPerSecond / start/endTimeCode so
  * the metadata table reads consistently. */
 function formatAuthoredNumber(value: number | null): string {
-  return value === null ? "(default)" : String(value);
+  return value === null ? t("usd_default_value") : String(value);
 }
 
 /** Render one row in the layer stack list. Handles depth indentation,
  * muted badge, offset display, and an expandable comment block. */
 function LayerRow({ layer }: { layer: LayerInfo }) {
+  useLocale();
   const hasOffset = layer.timeOffset !== 0 || layer.timeScale !== 1;
   return (
     <li
@@ -45,7 +42,7 @@ function LayerRow({ layer }: { layer: LayerInfo }) {
     >
       <div className="yl-list-row__main">
         <span className="yl-list-row__label">
-          {layer.depth === 0 ? "root" : "↳ sublayer"}
+          {layer.depth === 0 ? t("root") : t("sublayer")}
         </span>
         {layer.muted && (
           <Badge
@@ -54,14 +51,16 @@ function LayerRow({ layer }: { layer: LayerInfo }) {
             size="sm"
             uppercase
           >
-            muted
+            {t("muted")}
           </Badge>
         )}
         {hasOffset && (
           <span className="usd-inspector-note">
-            {layer.timeOffset !== 0 && `offset:${layer.timeOffset}`}
+            {layer.timeOffset !== 0 &&
+              t("usd_layer_offset", { value: layer.timeOffset })}
             {layer.timeOffset !== 0 && layer.timeScale !== 1 && " "}
-            {layer.timeScale !== 1 && `scale:${layer.timeScale}`}
+            {layer.timeScale !== 1 &&
+              t("usd_layer_scale", { value: layer.timeScale })}
           </span>
         )}
       </div>
@@ -69,7 +68,7 @@ function LayerRow({ layer }: { layer: LayerInfo }) {
         {shortLayerLabel(layer.identifier)}
       </div>
       {layer.comment && (
-        <Disclosure variant="minimal" title="comment" defaultOpen={false}>
+        <Disclosure variant="minimal" title={t("comment")} defaultOpen={false}>
           <p className="usd-layer-comment-text">{layer.comment}</p>
         </Disclosure>
       )}
@@ -101,13 +100,13 @@ function shortLayerLabel(identifier: string): string {
  * only when the extension is missing or non-standard. */
 function rootLayerFormatLabel(path: string, isBinary: boolean): string {
   const lower = path.toLowerCase();
-  if (lower.endsWith(".usdz")) return "USDZ (package)";
-  if (lower.endsWith(".usdc")) return "USDC (binary)";
-  if (lower.endsWith(".usda")) return "USDA (text)";
+  if (lower.endsWith(".usdz")) return t("usd_format_package");
+  if (lower.endsWith(".usdc")) return t("usd_format_usdc");
+  if (lower.endsWith(".usda")) return t("usd_format_usda");
   if (lower.endsWith(".usd")) {
-    return isBinary ? "USDC (binary)" : "USDA (text)";
+    return isBinary ? t("usd_format_usdc") : t("usd_format_usda");
   }
-  return isBinary ? "binary" : "text";
+  return isBinary ? t("usd_format_binary") : t("usd_format_text");
 }
 
 function asRows(
@@ -116,15 +115,27 @@ function asRows(
   return entries.filter(Boolean) as SidebarKeyValueRow[];
 }
 
-const capabilityLabels: Record<StageCapabilityKind, string> = {
-  pointInstancer: "Point Instancer",
-  materialX: "MaterialX",
-  skel: "UsdSkel",
-  animationRange: "Animation Range",
-  payload: "Payload",
-  variantOverride: "Variant Override",
-  usdAuthoredSplat: "USD-authored Splat",
+const capabilityLabelKeys: Record<StageCapabilityKind, string> = {
+  pointInstancer: "usd_capability_point_instancer",
+  materialX: "usd_capability_materialx",
+  skel: "usd_capability_skel",
+  animationRange: "usd_capability_animation_range",
+  payload: "usd_capability_payload",
+  variantOverride: "usd_capability_variant_override",
+  usdAuthoredSplat: "usd_capability_authored_splat",
 };
+
+const capabilitySupportKeys: Record<StageCapabilitySupport, string> = {
+  supported: "usd_support_supported",
+  degraded: "usd_support_degraded",
+  unsupported: "usd_support_unsupported",
+};
+
+function resolvedCountLabel(resolved: number, unresolved: number): string {
+  return unresolved > 0
+    ? t("usd_resolved_and_unresolved", { resolved, unresolved })
+    : t("usd_resolved_count", { resolved });
+}
 
 const capabilityBadgeVariants: Record<
   StageCapabilitySupport,
@@ -140,6 +151,7 @@ function StageCapabilities({
 }: {
   capabilities: readonly StageCapabilityInfo[];
 }) {
+  useLocale();
   const detectedCapabilities = capabilities.filter(
     (capability) => capability.detected,
   );
@@ -150,7 +162,7 @@ function StageCapabilities({
 
   return (
     <SidebarSection
-      title="Capabilities"
+      title={t("capabilities")}
       count={detectedCapabilities.length}
       collapsible
       defaultOpen={false}
@@ -174,13 +186,13 @@ function StageCapabilities({
                 .join(" ")}
             >
               <div className="yl-list-row__main">
-                <strong>{capabilityLabels[capability.kind]}</strong>
+                <strong>{t(capabilityLabelKeys[capability.kind])}</strong>
                 <Badge
                   className="usd-inspector-badge"
                   variant={capabilityBadgeVariants[capability.support]}
                   size="sm"
                 >
-                  {capability.support}
+                  {t(capabilitySupportKeys[capability.support])}
                 </Badge>
               </div>
               {reasonVisible && (
@@ -237,6 +249,11 @@ export function UsdInspectorCard({
   variantSelections,
   variantSelectionError,
 }: UsdInspectorCardProps) {
+  useLocale();
+  const loadPolicyOptions = [
+    { value: "loadAll", label: t("usd_policy_loaded") },
+    { value: "noPayloads", label: t("usd_policy_deferred") },
+  ] as const;
   const showControl = loadPolicy !== null;
   const effectiveCapabilities =
     summary?.capabilities ?? inspection?.capabilities ?? [];
@@ -247,10 +264,10 @@ export function UsdInspectorCard({
       capability.support === "supported",
   );
   return (
-    <SidebarSection title="USD Details" collapsible defaultOpen={false}>
+    <SidebarSection title={t("usd_details")} collapsible defaultOpen={false}>
       {showControl && (
         <SegmentedControl
-          aria-label="USD load policy"
+          aria-label={t("usd_load_policy")}
           onValueChange={onLoadPolicyChange}
           options={loadPolicyOptions}
           size="sm"
@@ -260,10 +277,10 @@ export function UsdInspectorCard({
       {error ? (
         <SidebarError>{error}</SidebarError>
       ) : loading ? (
-        <SidebarEmpty>Inspecting stage…</SidebarEmpty>
+        <SidebarEmpty>{t("inspecting_stage")}</SidebarEmpty>
       ) : !summary && !inspection ? (
         <SidebarEmpty>
-          Open a USD/USDA/USDC/USDZ asset to inspect its stage.
+          {t("open_a_usd_usda_usdc_usdz_asset_to_inspect_its_stage")}
         </SidebarEmpty>
       ) : (
         summary && (
@@ -271,82 +288,88 @@ export function UsdInspectorCard({
             rows={asRows([
               {
                 id: "layers",
-                label: "Layers",
+                label: t("layers"),
                 value: summary.layerCount,
                 mono: true,
               },
               {
                 id: "root-prims",
-                label: "Root prims",
+                label: t("root_prims"),
                 value: summary.rootPrimCount,
                 mono: true,
               },
               {
                 id: "meshes",
-                label: "Meshes",
+                label: t("meshes"),
                 value: summary.meshCount,
                 mono: true,
               },
               {
                 id: "vertices",
-                label: "Vertices",
-                value: summary.totalVertices.toLocaleString(),
+                label: t("vertices"),
+                value: formatNumber(summary.totalVertices),
                 mono: true,
               },
               {
                 id: "triangles",
-                label: "Triangles",
-                value: summary.totalTriangles.toLocaleString(),
+                label: t("triangles"),
+                value: formatNumber(summary.totalTriangles),
                 mono: true,
               },
               {
                 id: "payloads",
-                label: "Payloads",
+                label: t("payloads"),
                 value:
                   summary.unloadedPayloadCount > 0
-                    ? `${summary.payloadCount} (${summary.unloadedPayloadCount} deferred)`
+                    ? t("usd_payloads_deferred", {
+                        total: summary.payloadCount,
+                        deferred: summary.unloadedPayloadCount,
+                      })
                     : summary.payloadCount,
                 mono: true,
                 tone: summary.unloadedPayloadCount > 0 ? "warn" : "default",
               },
               {
                 id: "variants",
-                label: "Variants",
+                label: t("variants"),
                 value:
                   summary.variantSetCount > 0
-                    ? `${summary.hasVariants ? "yes" : "no"} (${summary.variantSetCount} sets)`
+                    ? t("usd_variant_sets_count", {
+                        presence: summary.hasVariants
+                          ? t("usd_yes")
+                          : t("usd_no"),
+                        count: summary.variantSetCount,
+                      })
                     : summary.hasVariants
-                      ? "yes"
-                      : "no",
+                      ? t("usd_yes")
+                      : t("usd_no"),
                 tone: summary.hasVariants ? "default" : "muted",
               },
               summary.durationSeconds !== null && {
                 id: "duration",
-                label: "Duration",
+                label: t("duration"),
                 value: `${summary.durationSeconds.toFixed(2)}s`,
                 mono: true,
               },
               (summary.resolvedReferenceCount > 0 ||
                 summary.unresolvedReferenceCount > 0) && {
                 id: "references",
-                label: "References",
-                value: `${summary.resolvedReferenceCount} resolved${
-                  summary.unresolvedReferenceCount > 0
-                    ? ` / ${summary.unresolvedReferenceCount} unresolved`
-                    : ""
-                }`,
+                label: t("references"),
+                value: resolvedCountLabel(
+                  summary.resolvedReferenceCount,
+                  summary.unresolvedReferenceCount,
+                ),
                 tone:
                   summary.unresolvedReferenceCount > 0 ? "danger" : "default",
               },
               (summary.resolvedPayloadCount > 0 ||
                 summary.unresolvedPayloadCount > 0) && {
                 id: "resolved-payloads",
-                label: "Payloads resolved",
-                value: `${summary.resolvedPayloadCount} resolved${
-                  summary.unresolvedPayloadCount > 0
-                    ? ` / ${summary.unresolvedPayloadCount} unresolved`
-                    : ""
-                }`,
+                label: t("payloads_resolved"),
+                value: resolvedCountLabel(
+                  summary.resolvedPayloadCount,
+                  summary.unresolvedPayloadCount,
+                ),
                 tone: summary.unresolvedPayloadCount > 0 ? "danger" : "default",
               },
             ])}
@@ -358,7 +381,7 @@ export function UsdInspectorCard({
           <StageCapabilities capabilities={effectiveCapabilities} />
           {summary && summary.primTypeCounts.length > 0 && (
             <SidebarSection
-              title="Prim Types"
+              title={t("prim_types")}
               count={summary.primTypeCounts.length}
               collapsible
               defaultOpen={false}
@@ -376,7 +399,7 @@ export function UsdInspectorCard({
           {inspection && (
             <>
               <SidebarSection
-                title="Advanced: Stage Metadata"
+                title={t("advanced_stage_metadata")}
                 collapsible
                 defaultOpen={false}
               >
@@ -384,28 +407,28 @@ export function UsdInspectorCard({
                   rows={[
                     {
                       id: "defaultPrim",
-                      label: "defaultPrim",
-                      value: inspection.defaultPrim ?? "(unset)",
+                      label: t("defaultprim"),
+                      value: inspection.defaultPrim ?? t("usd_unset_value"),
                       tone: inspection.defaultPrim ? "default" : "muted",
                     },
                     {
                       id: "upAxis",
-                      label: "upAxis",
-                      value: inspection.upAxis ?? "(default)",
+                      label: t("upaxis"),
+                      value: inspection.upAxis ?? t("usd_default_value"),
                       tone: inspection.upAxis ? "default" : "muted",
                     },
                     {
                       id: "metersPerUnit",
-                      label: "metersPerUnit",
+                      label: t("metersperunit"),
                       value:
                         inspection.metersPerUnit !== null
                           ? inspection.metersPerUnit
-                          : "(default)",
+                          : t("usd_default_value"),
                       mono: true,
                     },
                     {
                       id: "timeCodesPerSecond",
-                      label: "timeCodesPerSecond",
+                      label: t("timecodespersecond"),
                       value: formatAuthoredNumber(
                         inspection.timeCodesPerSecond,
                       ),
@@ -413,25 +436,25 @@ export function UsdInspectorCard({
                     },
                     {
                       id: "framesPerSecond",
-                      label: "framesPerSecond",
+                      label: t("framespersecond"),
                       value: formatAuthoredNumber(inspection.framesPerSecond),
                       mono: true,
                     },
                     {
                       id: "startTimeCode",
-                      label: "startTimeCode",
+                      label: t("starttimecode"),
                       value: formatAuthoredNumber(inspection.startTimeCode),
                       mono: true,
                     },
                     {
                       id: "endTimeCode",
-                      label: "endTimeCode",
+                      label: t("endtimecode"),
                       value: formatAuthoredNumber(inspection.endTimeCode),
                       mono: true,
                     },
                     {
                       id: "rootLayer",
-                      label: "rootLayer",
+                      label: t("rootlayer"),
                       value: rootLayerFormatLabel(
                         inspection.path,
                         inspection.rootLayerIsBinary,
@@ -444,7 +467,7 @@ export function UsdInspectorCard({
                     className="sidebar-path"
                     style={{ whiteSpace: "pre-wrap" }}
                   >
-                    <span className="muted">comment: </span>
+                    <span className="muted">{t("comment_2")}</span>
                     {inspection.comment}
                   </p>
                 )}
@@ -455,7 +478,7 @@ export function UsdInspectorCard({
                 ? inspection.layers
                 : null) !== null && inspection.layers!.length > 0 ? (
                 <SidebarSection
-                  title="Advanced: Layer Stack"
+                  title={t("advanced_layer_stack")}
                   count={inspection.layers!.length}
                   collapsible
                   defaultOpen={false}
@@ -471,7 +494,7 @@ export function UsdInspectorCard({
                 </SidebarSection>
               ) : inspection.composedLayers.length > 0 ? (
                 <SidebarSection
-                  title="Advanced: Layer Stack"
+                  title={t("advanced_layer_stack")}
                   count={inspection.composedLayers.length + 1}
                   collapsible
                   defaultOpen={false}
@@ -479,7 +502,7 @@ export function UsdInspectorCard({
                   <ul className="yl-list">
                     <li className="yl-list-row yl-list-row--indented">
                       <div className="yl-list-row__main">
-                        <span className="yl-list-row__label">root</span>
+                        <span className="yl-list-row__label">{t("root")}</span>
                       </div>
                       <div className="yl-list-row__path">
                         {shortLayerLabel(inspection.path)}
@@ -504,7 +527,7 @@ export function UsdInspectorCard({
               ) : null}
               {inspection.variantSets.length > 0 && (
                 <SidebarSection
-                  title="Variant Sets"
+                  title={t("variant_sets")}
                   count={inspection.variantSets.length}
                   collapsible
                   defaultOpen={false}
@@ -589,13 +612,14 @@ export function UsdInspectorCard({
               )}
               {inspection.missingAssets.length > 0 && (
                 <SidebarSection
-                  title="Missing Assets"
+                  title={t("missing_assets")}
                   count={inspection.missingAssets.length}
                   collapsible
                   defaultOpen={false}
                 >
                   <SidebarError>
-                    Missing assets: {inspection.missingAssets.length}
+                    {t("missing_assets_2")}
+                    {inspection.missingAssets.length}
                   </SidebarError>
                 </SidebarSection>
               )}
@@ -603,7 +627,7 @@ export function UsdInspectorCard({
           )}
           {issues.length > 0 && (
             <SidebarSection
-              title="Issues"
+              title={t("issues")}
               count={issues.length}
               collapsible
               defaultOpen={false}

@@ -205,6 +205,9 @@ describe("browser local files", () => {
       kind: "io",
       message: "Failed to open file dialog.",
     });
-    expect(invokeMock).toHaveBeenCalledWith("open_file_dialog");
+    expect(invokeMock).toHaveBeenCalledWith("open_file_dialog", {
+      title: "Open asset file",
+      filterName: "Supported assets",
+    });
   });
 });

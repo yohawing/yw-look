@@ -1,0 +1,4 @@
+{
+  "load_failed": "Rhino 3DMのプレビューを読み込めませんでした：{{detail}}",
+  "unavailable": "Rhino 3DMローダーがありません。対応するローダーパックをインストールしてください。"
+}

@@ -5,6 +5,7 @@ import {
   Ray,
   Raycaster,
   Scene,
+  SkinnedMesh,
   Vector2,
   WebGLRenderer,
 } from "three";
@@ -71,6 +72,16 @@ function collectVisibleSelectablePickTargets(root: Object3D): Mesh[] {
     if (isSelectablePickTarget(child)) targets.push(child);
   });
   return targets;
+}
+
+function isVisiblePickTarget(object: Object3D, mounted: Object3D) {
+  let current: Object3D | null = object;
+  while (current) {
+    if (!current.visible) return false;
+    if (current === mounted) return true;
+    current = current.parent;
+  }
+  return false;
 }
 
 export function createViewportPicker(
@@ -192,7 +203,27 @@ export function createViewportPicker(
     if (mounted !== mountedRoot) return null;
     raycaster.ray.copy(pickRay);
 
-    const hits = raycaster.intersectObjects(targets, false);
+    const visibleTargets = targets.filter((target) =>
+      isVisiblePickTarget(target, mounted),
+    );
+    // ObjectLoader/GLTFLoader may expose a SkinnedMesh before its bones have
+    // received their first world-matrix update. Bounds queried during mount
+    // are then cached in that incomplete pose, and SkinnedMesh.raycast() uses
+    // the stale object-level box as an early rejection test. Synchronize the
+    // complete hierarchy first, then refresh only the pose-dependent bounds
+    // used by the CPU path. Large dynamic meshes use GPU picking instead and
+    // static/BVH targets retain their existing cached bounds.
+    const visibleSkinnedTargets = visibleTargets.filter(
+      (target): target is SkinnedMesh => target instanceof SkinnedMesh,
+    );
+    if (visibleSkinnedTargets.length > 0) {
+      mounted.updateWorldMatrix(true, true, true);
+    }
+    for (const target of visibleSkinnedTargets) {
+      target.computeBoundingBox();
+      target.computeBoundingSphere();
+    }
+    const hits = raycaster.intersectObjects(visibleTargets, false);
     if (hits.length === 0) return null;
 
     let node: Object3D | null = hits[0].object;

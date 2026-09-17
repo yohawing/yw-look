@@ -1,4 +1,4 @@
-import { AnimationMixer, type Texture } from "three";
+import { AnimationMixer, Scene, type Texture } from "three";
 import type { AssetResourceMetrics } from "../lib/diagnostics";
 import type { SelectedFile } from "../lib/files";
 import type { PurposeModes } from "../lib/usd";
@@ -59,6 +59,159 @@ import { applyPurposeVisibility } from "./selection";
 import { collectAssetResourceMetrics } from "./resourceDiagnostics";
 
 type LoadedPreviewObject = Awaited<ReturnType<typeof loadPreviewObject>>;
+
+// Build a replacement off-scene. Runtime callbacks retain a context that starts
+// pointing at the candidate and switches to the live context only on commit.
+export async function mountReloadedPreview(
+  result: LoadedPreviewObject,
+  options: MountLoadedPreviewOptions,
+): Promise<ReadyPreviewFeedbackBase | null> {
+  const live = options.context;
+  const scene = new Scene();
+  scene.environment = live.scene.environment;
+  const candidate: SceneContext = {
+    ...live,
+    scene,
+    mountedObject: null,
+    sourceObject: null,
+    previewObject: null,
+    cleanupCallbacks: [],
+    cleanupUrls: [],
+    animationRoot: null,
+    mixer: null,
+    clips: [],
+    activeAction: null,
+    packRuntime: null,
+    mmdModel: null,
+    mmdMotion: null,
+    mmdLightSync: null,
+    textureRegistry: new Map(),
+  };
+  let target = candidate;
+  const context = new Proxy(candidate, {
+    get: (_object, key) => Reflect.get(target, key),
+    set: (_object, key, value) => Reflect.set(target, key, value),
+  });
+  const queued: Array<() => void> = [];
+  let committed = false;
+  const update = new Proxy(options.update, {
+    get: (object, key) => {
+      const callback = Reflect.get(object, key);
+      if (typeof callback !== "function") return callback;
+      return (...args: unknown[]) =>
+        committed ? callback(...args) : queued.push(() => callback(...args));
+    },
+  });
+  function prepareRef<T>(liveRef: { current: T }) {
+    let value = liveRef.current;
+    return {
+      get current() {
+        return committed ? liveRef.current : value;
+      },
+      set current(next: T) {
+        if (committed) liveRef.current = next;
+        else value = next;
+      },
+    };
+  }
+  const refs = {
+    activeCameraIdRef: prepareRef(options.refs.activeCameraIdRef),
+    activeCameraRef: prepareRef(options.refs.activeCameraRef),
+    assetResourceMetricsRef: prepareRef(options.refs.assetResourceMetricsRef),
+    scaleNormalizationRef: prepareRef(options.refs.scaleNormalizationRef),
+  };
+  const controlsEnabled = live.controls.enabled;
+  const toneMapping = live.renderer.toneMapping;
+  const exposure = live.renderer.toneMappingExposure;
+  const lightingTargets = {
+    ambient: options.lightingTargets.ambient?.clone() ?? null,
+    key: options.lightingTargets.key?.clone() ?? null,
+    fill: options.lightingTargets.fill?.clone() ?? null,
+  };
+  const disposeStagedHelpers = () => {
+    for (const child of [...scene.children]) {
+      scene.remove(child);
+      disposeObject(child);
+    }
+  };
+  let ready: ReadyPreviewFeedbackBase | null;
+  try {
+    ready = await mountLoadedPreview(result, {
+      ...options,
+      lightingTargets,
+      keyLight: options.keyLight,
+      context,
+      update,
+      refs,
+      preserveCameraView: true,
+      replaceExistingPreview: false,
+      clearActiveCameraId: () => queued.push(options.clearActiveCameraId),
+    });
+  } catch (error) {
+    disposeStagedHelpers();
+    live.controls.enabled = controlsEnabled;
+    live.renderer.toneMapping = toneMapping;
+    live.renderer.toneMappingExposure = exposure;
+    throw error;
+  }
+  if (!ready || options.isDisposed()) {
+    if (ready) {
+      runCleanupCallbacks(candidate.cleanupCallbacks);
+      stopAnimations(candidate);
+      resetSceneObjects(candidate);
+      revokeUrls(candidate.cleanupUrls);
+    }
+    disposeStagedHelpers();
+    live.renderer.toneMapping = toneMapping;
+    live.renderer.toneMappingExposure = exposure;
+    live.controls.enabled = controlsEnabled;
+    return null;
+  }
+  // Retirement errors must not turn a successfully prepared replacement into
+  // a failed reload after its predecessor has already been disposed.
+  for (const cleanup of [
+    () => runCleanupCallbacks(live.cleanupCallbacks),
+    () => stopAnimations(live),
+    () => resetSceneObjects(live),
+    () => revokeUrls(live.cleanupUrls),
+  ]) {
+    try {
+      cleanup();
+    } catch (error) {
+      console.warn("[viewer] outgoing preview cleanup", error);
+    }
+  }
+  for (const child of [...scene.children]) {
+    // Grid/axes/shadow helpers replace their identically named predecessor.
+    const prior =
+      child !== result.object && child.name
+        ? live.scene.getObjectByName(child.name)
+        : null;
+    if (prior && prior.parent === live.scene) {
+      live.scene.remove(prior);
+      disposeObject(prior);
+    }
+    live.scene.add(child);
+  }
+  Object.assign(live, candidate, { scene: live.scene });
+  target = live;
+  applyPreviewLightingPreset(
+    result.lighting ?? DEFAULT_LIGHTING_PRESET,
+    options.lightingTargets,
+  );
+  applyShadows(
+    live.scene,
+    result.object,
+    options.keyLight,
+    options.getMountState().showShadows,
+  );
+  for (const key of Object.keys(refs) as Array<keyof typeof refs>) {
+    Object.assign(options.refs[key], refs[key]);
+  }
+  committed = true;
+  for (const publish of queued) publish();
+  return ready;
+}
 
 type LoadedPreviewMountState = {
   backfaceCulling: boolean;
@@ -531,6 +684,8 @@ export async function mountLoadedPreview(
           `[viewer] USD camera id "${activeCameraId}" not found after reload - free camera restored`,
         );
         refs.activeCameraIdRef.current = null;
+        refs.activeCameraRef.current = null;
+        context.controls.enabled = true;
         clearActiveCameraId();
       }
     }

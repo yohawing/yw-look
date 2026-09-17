@@ -5,6 +5,7 @@ import { useViewerStore } from "../../stores/viewerStore";
 
 beforeEach(() => {
   useViewerStore.setState({
+    materialNavigationRequest: null,
     selectedUsdPrimPath: null,
     showGrid: true,
     viewerFeedback: {
@@ -72,5 +73,16 @@ describe("useViewportHostViewerModel", () => {
 
     expect(useViewerStore.getState().viewerSurfaceMode).toBe("texture");
     expect(result.current.actions).toBe(actions);
+  });
+
+  it("keeps viewport mesh selection separate from material navigation", () => {
+    const { result } = renderHook(() => useViewportHostViewerModel());
+
+    act(() => {
+      result.current.actions.setSelectedMeshName("/World/Hero");
+    });
+
+    expect(useViewerStore.getState().selectedMeshName).toBe("/World/Hero");
+    expect(useViewerStore.getState().materialNavigationRequest).toBeNull();
   });
 });

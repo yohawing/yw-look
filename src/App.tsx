@@ -1,3 +1,4 @@
+import { setLanguage } from "./lib/i18n";
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "./app/AppShell";
 import { useAppCommands } from "./app/useAppCommands";
@@ -7,6 +8,7 @@ import { useSessionAdjustedUsdSummary } from "./app/useSessionAdjustedUsdSummary
 import { useSidebarModel } from "./app/useSidebarModel";
 import { useViewerDiagnosticsModel } from "./app/useViewerDiagnosticsModel";
 import { ViewportHost } from "./app/ViewportHost";
+import { ExternalFileChangeNotice } from "./app/ExternalFileChangeNotice";
 import { CrashRecoveryNotice } from "./components/CrashRecoveryNotice";
 import { useDeferredData } from "./hooks/useDeferredData";
 import { usePayloadSession } from "./hooks/usePayloadSession";
@@ -98,6 +100,14 @@ export function App() {
     shouldLoadDeferredData,
     currentFile,
   );
+
+  useEffect(() => {
+    setLanguage(settingsPayload?.settings.language);
+    const onLanguageChange = () =>
+      setLanguage(settingsPayload?.settings.language);
+    window.addEventListener("languagechange", onLanguageChange);
+    return () => window.removeEventListener("languagechange", onLanguageChange);
+  }, [settingsPayload?.settings.language]);
 
   const {
     updateConfiguration,
@@ -216,6 +226,7 @@ export function App() {
     fileAssociationsAvailable,
     handleOpenDefaultAppsSettings,
     handleRetryFileAssociations,
+    handleChangeLanguage,
     handleToggleAutoCheckForUpdates,
     handleToggleFileAssociations,
     handleToggleOptionalLoaderPack,
@@ -244,6 +255,7 @@ export function App() {
       handleLoadPayload,
       handleOpenDefaultAppsSettings,
       handleRetryFileAssociations,
+      handleChangeLanguage,
       handleToggleAutoCheckForUpdates,
       handleToggleFileAssociations,
       handleToggleOptionalLoaderPack,
@@ -278,7 +290,12 @@ export function App() {
   return (
     <AppShell
       activeTab={activeTab}
-      banner={<CrashRecoveryNotice status={crashRecoveryStatus} />}
+      banner={
+        <>
+          <CrashRecoveryNotice status={crashRecoveryStatus} />
+          <ExternalFileChangeNotice enabled={isTauri} />
+        </>
+      }
       dialogState={dialogState}
       handleSidebarResizeStart={handleSidebarResizeStart}
       onCloseDialog={() => setDialogState(null)}

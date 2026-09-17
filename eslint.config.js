@@ -9,6 +9,7 @@ export default tseslint.config(
     ignores: [
       "dist",
       "node_modules",
+      "artifacts/**",
       "src-tauri/target",
       // Alembic helper regeneration can populate third-party assets that
       // should not be linted as application source.

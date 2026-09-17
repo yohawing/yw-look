@@ -6,6 +6,8 @@ function createOptions(
   overrides: Partial<Build3DToolbarOptions> = {},
 ): Build3DToolbarOptions {
   return {
+    ambientOcclusionEnabled: true,
+    onToggleAmbientOcclusion: vi.fn(),
     cameraPreset: "front",
     cameraPresetOptions: [{ id: "front", label: "Front" }],
     onSelectCameraPreset: vi.fn(),
@@ -61,6 +63,9 @@ describe("build3DToolbar", () => {
     const lighting = findPopover(items, "lighting")!;
     expect(lighting.label).toBe("Lighting");
     expect(findChild(lighting, "environment-studio")?.active).toBe(true);
+    expect(findChild(lighting, "lighting-ambient-occlusion")?.active).toBe(
+      true,
+    );
 
     expect(
       items.some((item) => item.kind !== "separator" && item.id === "look"),

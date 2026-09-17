@@ -8,7 +8,6 @@ import {
   type ToneMapping,
   WebGLRenderer,
 } from "three";
-import type { SelectedFile } from "../lib/files";
 import type { BackgroundPreset, ToneMappingMode } from "../types/viewer";
 import {
   DEFAULT_PREVIEW_RENDERING_PRESET,
@@ -76,12 +75,9 @@ export function applyViewportBackground(
   scene.background = environmentTexture ?? new Color(color);
 }
 
-export function shouldFlipTexturePreviewY(
-  texture: Texture,
-  file: SelectedFile | null,
-): boolean {
-  return (
-    (file?.extension === "pmx" || file?.extension === "pmd") &&
-    texture.flipY === false
-  );
+export function shouldFlipTexturePreviewY(texture: Texture): boolean {
+  // The preview plane has Three.js's bottom-left UV origin. glTF/FBX and
+  // other textures with flipY=false need a display-only UV flip to show the
+  // original image top row at the top; do not mutate the shared texture.
+  return texture.flipY === false;
 }

@@ -1,0 +1,14 @@
+{
+  "ifc_display": "IFC 표시",
+  "color_by": "색상 기준",
+  "ifc_color_mode": "IFC 색상 모드",
+  "original": "원본",
+  "category": "분류",
+  "element": "요소",
+  "storey": "층",
+  "loading_element_information": "요소 정보 불러오는 중…",
+  "some_information_was_omitted_because_the_detail_limit_was_reached": "상세 정보 한도에 도달하여 일부 정보가 생략되었습니다.",
+  "no_values_provided": "제공된 값이 없습니다.",
+  "load_failed": "IFC 미리보기를 불러오지 못했습니다: {{detail}}",
+  "unavailable": "IFC 로더가 없습니다. 해당 로더 팩을 설치하세요."
+}

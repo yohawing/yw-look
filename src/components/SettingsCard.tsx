@@ -1,3 +1,5 @@
+import { SelectField } from "./ui/SelectField";
+import { t, useLocale, type LanguagePreference } from "../lib/i18n";
 import type { SettingsPayload } from "../lib/settings";
 import type { FileAssociationSyncResult } from "../lib/fileAssociations";
 import type { OptionalLoaderPackStatus } from "../viewer";
@@ -12,14 +14,13 @@ import { Button } from "./ui/Button";
 
 type SettingsCardProps = {
   settingsPayload: SettingsPayload | null;
+  onChangeLanguage?: (language: LanguagePreference) => void;
   settingsError: string | null;
   optionalLoaderPacks?: readonly OptionalLoaderPackStatus[];
   optionalLoaderPacksError?: string | null;
   fileAssociationResult?: FileAssociationSyncResult | null;
   fileAssociationError?: string | null;
   fileAssociationsAvailable?: boolean;
-  /** #26: flips `autoCheckForUpdates` and persists via save_settings. */
-  onToggleAutoCheckForUpdates: () => void;
   onToggleFileAssociations?: () => void;
   onToggleOptionalLoaderPack: (packId: string) => void;
   onOpenDefaultAppsSettings?: () => void;
@@ -38,21 +39,22 @@ function canToggleOptionalLoaderPack(pack: OptionalLoaderPackStatus) {
 
 export function SettingsCard({
   settingsPayload,
+  onChangeLanguage,
   settingsError,
   optionalLoaderPacks = [],
   optionalLoaderPacksError = null,
   fileAssociationResult = null,
   fileAssociationError = null,
   fileAssociationsAvailable = false,
-  onToggleAutoCheckForUpdates,
   onToggleFileAssociations,
   onToggleOptionalLoaderPack,
   onOpenDefaultAppsSettings,
   onRetryFileAssociations,
 }: SettingsCardProps) {
-  if (settingsError) {
+  useLocale();
+  if (settingsError && !settingsPayload) {
     return (
-      <SidebarSection title="Local Settings">
+      <SidebarSection title={t("local_settings")}>
         <SidebarError>{settingsError}</SidebarError>
       </SidebarSection>
     );
@@ -60,34 +62,44 @@ export function SettingsCard({
 
   if (!settingsPayload) {
     return (
-      <SidebarSection title="Local Settings">
-        <SidebarEmpty>Loading settings.</SidebarEmpty>
+      <SidebarSection title={t("local_settings")}>
+        <SidebarEmpty>{t("loading_settings")}</SidebarEmpty>
       </SidebarSection>
     );
   }
 
   return (
     <>
-      <SidebarSection title="Update Preferences">
-        <div className="yl-kv">
-          <FieldRow
-            className="yl-kv-row"
-            controlClassName="yl-kv-value"
-            label="Auto-check updates"
-            labelClassName="yl-kv-key"
+      {settingsError ? (
+        <SidebarError>
+          {t("settings.saveFailed")} {settingsError}
+        </SidebarError>
+      ) : null}
+      <SidebarSection title={t("local_settings")}>
+        <FieldRow
+          label={t("settings.language")}
+          className="yl-kv-row"
+          labelClassName="yl-kv-key"
+          controlClassName="yl-kv-value"
+        >
+          <SelectField
+            aria-label={t("settings.language")}
+            value={settingsPayload.settings.language ?? "system"}
+            onChange={(event) =>
+              onChangeLanguage?.(event.target.value as LanguagePreference)
+            }
           >
-            <ToggleSwitch
-              aria-label="Auto-check updates"
-              checked={settingsPayload.settings.autoCheckForUpdates}
-              onCheckedChange={() => onToggleAutoCheckForUpdates()}
-              size="sm"
-            />
-          </FieldRow>
-        </div>
+            <option value="system">{t("settings.systemLanguage")}</option>
+            <option value="en">English</option>
+            <option value="ja">日本語</option>
+            <option value="zh-Hans">简体中文</option>
+            <option value="ko">한국어</option>
+          </SelectField>
+        </FieldRow>
       </SidebarSection>
       {fileAssociationsAvailable &&
       fileAssociationResult?.supported !== false ? (
-        <SidebarSection title="File Associations">
+        <SidebarSection title={t("file_associations")}>
           {fileAssociationError ? (
             <SidebarError>{fileAssociationError}</SidebarError>
           ) : null}
@@ -95,11 +107,13 @@ export function SettingsCard({
             <FieldRow
               className="yl-kv-row"
               controlClassName="yl-kv-value"
-              label="Offer enabled formats as Windows app candidates"
+              label={t("offer_enabled_formats_as_windows_app_candidates")}
               labelClassName="yl-kv-key"
             >
               <ToggleSwitch
-                aria-label="Offer enabled formats as Windows app candidates"
+                aria-label={t(
+                  "offer_enabled_formats_as_windows_app_candidates",
+                )}
                 checked={settingsPayload.settings.fileAssociationsEnabled}
                 onCheckedChange={() => onToggleFileAssociations?.()}
                 size="sm"
@@ -111,7 +125,7 @@ export function SettingsCard({
             size="sm"
             variant="subtle"
           >
-            Open Windows Default Apps
+            {t("open_windows_default_apps")}
           </Button>
           {fileAssociationError ? (
             <Button
@@ -119,12 +133,12 @@ export function SettingsCard({
               size="sm"
               variant="subtle"
             >
-              Retry File Associations
+              {t("retry_file_associations")}
             </Button>
           ) : null}
         </SidebarSection>
       ) : null}
-      <SidebarSection title="Optional Loader Packs" collapsible>
+      <SidebarSection title={t("optional_loader_packs")} collapsible>
         {optionalLoaderPacksError ? (
           <SidebarError>{optionalLoaderPacksError}</SidebarError>
         ) : null}
@@ -149,7 +163,9 @@ export function SettingsCard({
             ))}
           </div>
         ) : (
-          <SidebarEmpty>No optional loader packs registered.</SidebarEmpty>
+          <SidebarEmpty>
+            {t("no_optional_loader_packs_registered")}
+          </SidebarEmpty>
         )}
       </SidebarSection>
     </>

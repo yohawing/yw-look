@@ -76,35 +76,19 @@ pub(crate) fn is_renderable_mesh(stage: &Stage, prim_path: &SdfPath) -> bool {
         return false;
     }
 
+    if has_invisible_ancestor(stage, prim_path) {
+        return false;
+    }
+
     // Walk from the leaf toward the pseudo-root. Every step checks the
-    // current prim's own opinions for visibility/purpose. If any
-    // ancestor hides the subtree, the mesh is skipped.
+    // current prim's own purpose opinion. If any ancestor hides the subtree
+    // from the default render purpose, the mesh is skipped.
     // String-based parent walk matches `compose_world_xform`.
     let mut path_str = prim_path.as_str().to_string();
     loop {
         let Ok(ancestor) = SdfPath::new(&path_str) else {
             break;
         };
-
-        // `visibility = "invisible"` hides the prim and all descendants
-        // until an inner prim re-authors `visibility = "inherited"`. We
-        // don't do the full inherited-override walk here; yw-look's
-        // preview purpose is the coarse "show what usdview would show by
-        // default", which matches a first-invisible-wins heuristic well
-        // enough for the scenes yw-look targets.
-        if let Ok(prop) = ancestor.append_property("visibility") {
-            if stage
-                .attribute_at(prop)
-                .get::<SdfValue>()
-                .ok()
-                .flatten()
-                .and_then(token_or_string_value_to_string)
-                .as_deref()
-                == Some("invisible")
-            {
-                return false;
-            }
-        }
 
         if let Ok(prop) = ancestor.append_property("purpose") {
             if matches!(
@@ -144,10 +128,33 @@ pub(crate) fn is_mesh_active_and_visible(stage: &Stage, prim_path: &SdfPath) -> 
     // Use Prim::type_name rather than a raw stage field lookup. Instance proxy
     // paths have no authored spec at their proxy namespace, so field lookup
     // returns None even though the composed prim is a Mesh.
-    if !is_mesh_active(stage, prim_path) {
+    if stage
+        .prim_at(prim_path.clone())
+        .type_name()
+        .ok()
+        .flatten()
+        .as_deref()
+        != Some("Mesh")
+    {
         return false;
     }
 
+    is_prim_active_and_visible(stage, prim_path)
+}
+
+/// Returns whether a composed prim participates in preview geometry after
+/// applying the active and inherited visibility contracts. Unlike the Mesh
+/// wrapper above, this is also suitable for placement prims such as
+/// PointInstancer.
+pub(crate) fn is_prim_active_and_visible(stage: &Stage, prim_path: &SdfPath) -> bool {
+    if !is_composed_prim_active(stage, prim_path) {
+        return false;
+    }
+
+    !has_invisible_ancestor(stage, prim_path)
+}
+
+fn has_invisible_ancestor(stage: &Stage, prim_path: &SdfPath) -> bool {
     let mut path_str = prim_path.as_str().to_string();
     loop {
         let Ok(ancestor) = SdfPath::new(&path_str) else {
@@ -164,7 +171,7 @@ pub(crate) fn is_mesh_active_and_visible(stage: &Stage, prim_path: &SdfPath) -> 
                 .as_deref()
                 == Some("invisible")
             {
-                return false;
+                return true;
             }
         }
 
@@ -177,18 +184,18 @@ pub(crate) fn is_mesh_active_and_visible(stage: &Stage, prim_path: &SdfPath) -> 
         path_str.truncate(slash_idx);
     }
 
-    true
+    false
 }
 
-fn is_mesh_active(stage: &Stage, prim_path: &SdfPath) -> bool {
-    stage
-        .prim_at(prim_path.clone())
-        .type_name()
+/// Whether this prim has a composed visibility opinion. A single-layer USDA
+/// with such an opinion must use native extraction because Three.js USDLoader
+/// does not apply USD visibility.
+pub(crate) fn has_authored_visibility(stage: &Stage, prim_path: &SdfPath) -> bool {
+    prim_path
+        .append_property("visibility")
         .ok()
-        .flatten()
-        .as_deref()
-        == Some("Mesh")
-        && is_composed_prim_active(stage, prim_path)
+        .and_then(|path| stage.attribute_at(path).get::<SdfValue>().ok().flatten())
+        .is_some()
 }
 
 /// `Prim::is_active` currently returns false for instance proxies because

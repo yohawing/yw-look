@@ -165,6 +165,7 @@ pub fn run() {
     // are never dropped while the application is still starting.
     let app = tauri::Builder::default()
         .manage(PendingOpenFiles::default())
+        .manage(commands::file_watch::FileWatches::default())
         .setup(move |app| {
             app.handle()
                 .plugin(
@@ -207,6 +208,15 @@ pub fn run() {
                 ))
             })?;
 
+            // Use the running package version and Rust build kind, including when
+            // a release build is configured to use a local update feed.
+            #[cfg(debug_assertions)]
+            window.set_title(&format!(
+                "{} — Development v{}",
+                window.title()?,
+                app.package_info().version
+            ))?;
+
             let keep_window_visible = bench_cli_config
                 .as_ref()
                 .is_some_and(|config| config.visible)
@@ -242,6 +252,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::file_watch::start_file_watch,
+            commands::file_watch::stop_file_watch,
             load_settings,
             save_settings,
             load_update_configuration,

@@ -1,9 +1,12 @@
+import { t, useLocale } from "../lib/i18n";
 import { version as packageVersion } from "../../package.json";
 import type {
   UpdateCheckPayload,
   UpdateConfigurationPayload,
 } from "../lib/updater";
 import { isUpdaterConfigured } from "../lib/updater";
+import { FieldRow } from "./ui/FieldRow";
+import { ToggleSwitch } from "./ui/ToggleSwitch";
 import { Button } from "./ui/Button";
 import {
   SidebarEmpty,
@@ -14,6 +17,8 @@ import {
 } from "../lib/sidebarPrimitives";
 
 type UpdateCardProps = {
+  autoCheckForUpdates: boolean | null;
+  onToggleAutoCheckForUpdates: () => void;
   updateConfiguration: UpdateConfigurationPayload | null;
   updateError: string | null;
   updateCheck: UpdateCheckPayload | null;
@@ -24,6 +29,8 @@ type UpdateCardProps = {
 };
 
 export function UpdateCard({
+  autoCheckForUpdates,
+  onToggleAutoCheckForUpdates,
   updateConfiguration,
   updateError,
   updateCheck,
@@ -32,6 +39,7 @@ export function UpdateCard({
   onCheckForUpdate,
   onInstallUpdate,
 }: UpdateCardProps) {
+  useLocale();
   const configured = isUpdaterConfigured(updateConfiguration);
   const unavailable = updateConfiguration !== null && !configured;
   const hasUpdate = configured && Boolean(updateCheck?.update);
@@ -50,60 +58,17 @@ export function UpdateCard({
               : updateConfiguration
                 ? "idle"
                 : "loading";
-  const updateStateText = {
-    failed: "Update check failed",
-    installing: "Installing update",
-    checking: "Checking for updates",
-    available: "Update available",
-    "up-to-date": "Up to date",
-    idle: "Ready to check",
-    unavailable: "Unavailable",
-    loading: "Loading updater configuration",
-  }[updateState];
-  const updateRows: SidebarKeyValueRow[] = updateCheck?.update
-    ? [
-        {
-          id: "current",
-          label: "Current",
-          value: updateCheck.update.currentVersion,
-          mono: true,
-          tone: "muted",
-        },
-        {
-          id: "available",
-          label: "Available",
-          value: updateCheck.update.version,
-          mono: true,
-        },
-        { id: "target", label: "Target", value: updateCheck.update.target },
-        {
-          id: "download-url",
-          label: "Download",
-          value: updateCheck.update.downloadUrl,
-          mono: true,
-        },
-        ...(updateCheck.update.pubDate
-          ? [
-              {
-                id: "published",
-                label: "Published",
-                value: updateCheck.update.pubDate,
-                tone: "muted" as const,
-              },
-            ]
-          : []),
-      ]
-    : [];
+  const updateStateText = t(`update.${updateState}`);
   const statusRows: SidebarKeyValueRow[] = [
     {
       id: "current-version",
-      label: "Version",
+      label: t("version"),
       value: updateConfiguration?.currentVersion ?? packageVersion,
       mono: true,
     },
     {
       id: "state",
-      label: "State",
+      label: t("state"),
       value: updateStateText,
       tone:
         updateState === "available"
@@ -117,9 +82,9 @@ export function UpdateCard({
     ...(configured && updateCheck?.update
       ? [
           {
-            id: "version-path",
-            label: "Update",
-            value: `${updateCheck.update.currentVersion} -> ${updateCheck.update.version}`,
+            id: "available-version",
+            label: t("available"),
+            value: updateCheck.update.version,
             mono: true,
           } satisfies SidebarKeyValueRow,
         ]
@@ -127,68 +92,54 @@ export function UpdateCard({
   ];
 
   return (
-    <>
-      <SidebarSection title="App Updates">
-        {updateError && !unavailable ? (
-          <SidebarError>{updateError}</SidebarError>
-        ) : null}
-        <SidebarKeyValueRows rows={statusRows} />
-        {unavailable ? (
-          <SidebarEmpty>Update checks unavailable for this build</SidebarEmpty>
-        ) : null}
-        {updateConfiguration ? (
-          <div className="card-actions">
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={
-                !configured || isCheckingForUpdate || isInstallingUpdate
-              }
-              onClick={onCheckForUpdate}
-            >
-              {isCheckingForUpdate ? "Checking..." : "Check for Updates"}
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              disabled={!hasUpdate || isCheckingForUpdate || isInstallingUpdate}
-              onClick={onInstallUpdate}
-            >
-              {isInstallingUpdate ? "Installing..." : "Install Update"}
-            </Button>
-          </div>
-        ) : (
-          <SidebarEmpty>Loading updater configuration.</SidebarEmpty>
-        )}
-      </SidebarSection>
-
-      {configured && updateCheck?.update ? (
-        <SidebarSection
-          title="Available update"
-          count={updateCheck.update.version}
+    <SidebarSection title={t("app_updates")}>
+      <div className="yl-kv">
+        <FieldRow
+          className="yl-kv-row"
+          controlClassName="yl-kv-value"
+          label={t("auto_check_updates")}
+          labelClassName="yl-kv-key"
         >
-          <SidebarKeyValueRows rows={updateRows} />
-          {updateCheck.update.notes ? (
-            <pre className="log-preview">{updateCheck.update.notes}</pre>
-          ) : null}
-          <div className="card-actions">
-            <Button
-              variant="primary"
-              size="sm"
-              disabled={
-                !configured || isCheckingForUpdate || isInstallingUpdate
-              }
-              onClick={onInstallUpdate}
-            >
-              {isInstallingUpdate ? "Installing..." : "Install Update"}
-            </Button>
-          </div>
-        </SidebarSection>
-      ) : configured && updateCheck ? (
-        <SidebarSection title="Available update">
-          <SidebarEmpty>No newer update available.</SidebarEmpty>
-        </SidebarSection>
+          <ToggleSwitch
+            aria-label={t("auto_check_updates")}
+            checked={autoCheckForUpdates ?? false}
+            disabled={autoCheckForUpdates === null}
+            onCheckedChange={onToggleAutoCheckForUpdates}
+            size="sm"
+          />
+        </FieldRow>
+      </div>
+      {updateError && !unavailable ? (
+        <SidebarError>{updateError}</SidebarError>
       ) : null}
-    </>
+      <SidebarKeyValueRows rows={statusRows} />
+      {unavailable ? (
+        <SidebarEmpty>
+          {t("update_checks_unavailable_for_this_build")}
+        </SidebarEmpty>
+      ) : null}
+      {updateConfiguration ? (
+        <div className="card-actions">
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={!configured || isCheckingForUpdate || isInstallingUpdate}
+            onClick={onCheckForUpdate}
+          >
+            {isCheckingForUpdate ? t("checking") : t("check_for_updates")}
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={!hasUpdate || isCheckingForUpdate || isInstallingUpdate}
+            onClick={onInstallUpdate}
+          >
+            {isInstallingUpdate ? t("installing") : t("install_update")}
+          </Button>
+        </div>
+      ) : (
+        <SidebarEmpty>{t("loading_updater_configuration")}</SidebarEmpty>
+      )}
+    </SidebarSection>
   );
 }

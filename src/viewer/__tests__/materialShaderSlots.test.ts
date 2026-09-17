@@ -111,6 +111,7 @@ describe("MaterialEntry shader slot extraction (#36)", () => {
     expect(entry.baseColorTexture).toEqual({
       name: "normal.png",
       sourcePath: texture.name,
+      textureId: texture.uuid,
     });
     expect(entry.normalTexture).toEqual(entry.baseColorTexture);
   });
@@ -226,6 +227,7 @@ describe("MaterialEntry shader slot extraction (#36)", () => {
     expect(entry.baseColorTexture).toEqual({
       name: "diffuse.png",
       sourcePath: "/textures/diffuse.png",
+      textureId: tex.uuid,
     });
   });
 
@@ -321,6 +323,7 @@ describe("MaterialEntry shader slot extraction (#36)", () => {
     );
     expect(result.metadata.materials[0].normalTexture).toEqual({
       name: "NormalMap",
+      textureId: tex.uuid,
     });
   });
 
@@ -338,6 +341,7 @@ describe("MaterialEntry shader slot extraction (#36)", () => {
     );
     expect(result.metadata.materials[0].metallicRoughnessTexture).toEqual({
       name: "ORM",
+      textureId: tex.uuid,
     });
   });
 

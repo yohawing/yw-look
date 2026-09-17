@@ -4,6 +4,9 @@ import type { SidebarTabId } from "../types/ui";
 
 export type SidebarLayoutId = "hierarchy" | "materials" | "textures";
 
+export type DialogState =
+  { kind: "shortcuts" } | { kind?: undefined; title: string; lines: string[] };
+
 export interface UiState {
   activeTab: SidebarTabId;
   sidebarOpen: boolean;
@@ -15,14 +18,14 @@ export interface UiState {
   ) => void;
   viewportPanelOpen: boolean;
   isDragActive: boolean;
-  dialogState: { title: string; lines: string[] } | null;
+  dialogState: DialogState | null;
 
   setActiveTab: (v: SidebarTabId) => void;
   setSidebarOpen: (v: boolean) => void;
   setSidebarWidth: (v: number) => void;
   setViewportPanelOpen: (v: boolean) => void;
   setIsDragActive: (v: boolean) => void;
-  setDialogState: (v: { title: string; lines: string[] } | null) => void;
+  setDialogState: (v: DialogState | null) => void;
   toggleSidebarOpen: () => void;
 }
 

@@ -24,7 +24,7 @@ import {
 } from "../viewer";
 import { applyControlSensitivity, configureAssetControls } from "./camera";
 import { createEnvironmentTarget } from "./environment";
-import type { FxaaComposerState } from "./fxaa";
+import type { ViewportComposerState } from "./fxaa";
 import { createFlyCameraControls } from "./flyCamera";
 import { createViewportPicker } from "./selection";
 import {
@@ -57,6 +57,7 @@ type ViewportSceneLifecycleCallbacks = Pick<
 type ViewportSceneLifecycleOptions = {
   activeCameraIdRef: MutableRefObject<string | null | undefined>;
   activeCameraRef: MutableRefObject<import("three").Camera | null>;
+  ambientOcclusionEnabledRef?: MutableRefObject<boolean>;
   ambientLightRef: MutableRefObject<AmbientLight | null>;
   backgroundPresetRef: MutableRefObject<BackgroundPreset>;
   cameraFovRef: MutableRefObject<number>;
@@ -76,7 +77,7 @@ type ViewportSceneLifecycleOptions = {
   exposureRef: MutableRefObject<number>;
   fillLightRef: MutableRefObject<DirectionalLight | null>;
   fxaaEnabledRef: MutableRefObject<boolean>;
-  fxaaStateRef: MutableRefObject<FxaaComposerState | null>;
+  fxaaStateRef: MutableRefObject<ViewportComposerState | null>;
   hostRef: RefObject<HTMLDivElement | null>;
   keyLightRef: MutableRefObject<DirectionalLight | null>;
   onSelectMeshRef: MutableRefObject<
@@ -104,9 +105,24 @@ export function getRendererLifetimeBoundary(
     .logarithmicDepthBuffer;
 }
 
+export function isViewportAmbientOcclusionAvailable(options: {
+  enabled: boolean;
+  hasMountedObject: boolean;
+  logarithmicDepthBuffer: boolean;
+  viewerSurfaceMode: ViewerSurfaceMode;
+}): boolean {
+  return (
+    options.enabled &&
+    options.hasMountedObject &&
+    !options.logarithmicDepthBuffer &&
+    options.viewerSurfaceMode === "asset"
+  );
+}
+
 export function useViewportSceneLifecycle({
   activeCameraIdRef,
   activeCameraRef,
+  ambientOcclusionEnabledRef,
   activeEnvironmentPresetRef,
   ambientLightRef,
   backgroundPresetRef,
@@ -307,6 +323,12 @@ export function useViewportSceneLifecycle({
     const resizeObserver = new ResizeObserver(() => {
       applyViewportResize({
         activeCamera: activeCameraRef.current,
+        ambientOcclusionEnabled: isViewportAmbientOcclusionAvailable({
+          enabled: ambientOcclusionEnabledRef?.current ?? false,
+          hasMountedObject: Boolean(sceneContextRef.current?.mountedObject),
+          logarithmicDepthBuffer: rendererLifetimeBoundary,
+          viewerSurfaceMode: viewerSurfaceModeRef.current,
+        }),
         cameraSpeedMultiplier: cameraSpeedMultiplierRef.current,
         defaultCamera: camera,
         fxaaEnabled: fxaaEnabledRef.current,
@@ -334,6 +356,12 @@ export function useViewportSceneLifecycle({
       const frameNow = performance.now();
       previousRenderTimestamp = tickViewportFrame({
         activeCamera: activeCameraRef.current,
+        ambientOcclusionEnabled: isViewportAmbientOcclusionAvailable({
+          enabled: ambientOcclusionEnabledRef?.current ?? false,
+          hasMountedObject: Boolean(sceneContextRef.current?.mountedObject),
+          logarithmicDepthBuffer: rendererLifetimeBoundary,
+          viewerSurfaceMode: viewerSurfaceModeRef.current,
+        }),
         controls,
         defaultCamera: camera,
         flyCameraControls,

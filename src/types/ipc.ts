@@ -199,10 +199,12 @@ export type ResourceDiagnosticsSnapshot = {
 // ── Settings IPC types ───────────────────────────────────────────
 
 export type AppSettings = {
-  [K in keyof GeneratedAppSettings]: K extends "optionalLoaderPacks"
+  [
+    K in keyof Omit<GeneratedAppSettings, "language">
+  ]: K extends "optionalLoaderPacks"
     ? Record<string, OptionalLoaderPackSettings | undefined>
     : GeneratedAppSettings[K];
-};
+} & { language?: string };
 
 export type OptionalLoaderPackSettings = GeneratedOptionalLoaderPackSettings;
 

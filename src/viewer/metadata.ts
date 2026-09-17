@@ -276,7 +276,10 @@ function isSyntheticWrapper(object: Object3D): boolean {
  * synthetic wrapper nodes so they are transparent to the user. The
  * caller is expected to start from a non-wrapper root; if the root
  * itself is a wrapper, use `buildHierarchyForest` to skip past it. */
-function buildHierarchyNode(object: Object3D): HierarchyNode {
+function buildHierarchyNode(
+  object: Object3D,
+  useAuthoredFbxDisplayNames: boolean,
+): HierarchyNode {
   // Keep an empty string when the node has no authored name. The
   // display layer (HierarchyCard) substitutes "(unnamed)" purely for
   // the visible label; storing that placeholder in `name` would leak
@@ -292,21 +295,32 @@ function buildHierarchyNode(object: Object3D): HierarchyNode {
   // For USD-sourced nodes the SdfPath is globally unique, so derive the
   // display label from the SdfPath basename. Falls back to the raw
   // Three.js name for non-USD assets where primPath is absent.
-  const displayName = primPath
+  const runtimeName = primPath
     ? basenameFromPrimPath(primPath)
     : safeTrimmedName(object);
+  // GLTFLoader removes animation-reserved punctuation (including `.`) from
+  // runtime Object3D names, but keeps the authored glTF node name here. Native
+  // FBX preview uses that GLB path, so retain the safe runtime name as the
+  // selection key while restoring names such as `thigh_stretch.l` for display.
+  const authoredFbxName =
+    useAuthoredFbxDisplayNames && primPath === undefined
+      ? stringValue(object.userData.name)
+      : null;
   const explicitSelectionKey = explicitObjectSelectionKey(object);
   const mmdBoneName =
     object instanceof Bone ? stringValue(object.userData.mmdBoneName) : null;
-  const nodeName = explicitSelectionKey ?? displayName;
-  const visibleName = mmdBoneName ?? displayName;
+  const nodeName = explicitSelectionKey ?? runtimeName;
+  const visibleName = mmdBoneName ?? authoredFbxName ?? runtimeName;
   return {
     name: nodeName,
     ...(visibleName && visibleName !== nodeName
       ? { displayName: visibleName }
       : {}),
-    kind: getHierarchyKind(object),
-    children: collectHierarchyChildren(object),
+    kind:
+      useAuthoredFbxDisplayNames && object.userData.fbxMesh === true
+        ? "mesh"
+        : getHierarchyKind(object),
+    children: collectHierarchyChildren(object, useAuthoredFbxDisplayNames),
     ...(primPath !== undefined ? { primPath } : {}),
   };
 }
@@ -315,13 +329,22 @@ function buildHierarchyNode(object: Object3D): HierarchyNode {
  * (the children of a wrapper appear as direct children of `parent`).
  * Recursively flattens chains of wrappers in the rare case the GLB
  * pipeline ever stacks more than one. */
-function collectHierarchyChildren(parent: Object3D): HierarchyNode[] {
+function collectHierarchyChildren(
+  parent: Object3D,
+  useAuthoredFbxDisplayNames: boolean,
+): HierarchyNode[] {
   const out: HierarchyNode[] = [];
   for (const child of parent.children) {
+    if (
+      useAuthoredFbxDisplayNames &&
+      child.userData.__ywFbxMaterialPart === true
+    ) {
+      continue;
+    }
     if (isSyntheticWrapper(child)) {
-      out.push(...collectHierarchyChildren(child));
+      out.push(...collectHierarchyChildren(child, useAuthoredFbxDisplayNames));
     } else {
-      out.push(buildHierarchyNode(child));
+      out.push(buildHierarchyNode(child, useAuthoredFbxDisplayNames));
     }
   }
   return out;
@@ -331,11 +354,14 @@ function collectHierarchyChildren(parent: Object3D): HierarchyNode[] {
  * past any chain of synthetic wrapper nodes at the top of the scene
  * graph so the first row the user sees is the actual USD stage root
  * (e.g. `Kitchen_set`) rather than `(unnamed) → __upAxis → Kitchen_set`. */
-function buildHierarchyForest(root: Object3D): HierarchyNode[] {
+function buildHierarchyForest(
+  root: Object3D,
+  useAuthoredFbxDisplayNames: boolean,
+): HierarchyNode[] {
   if (isSyntheticWrapper(root)) {
-    return collectHierarchyChildren(root);
+    return collectHierarchyChildren(root, useAuthoredFbxDisplayNames);
   }
-  return [buildHierarchyNode(root)];
+  return [buildHierarchyNode(root, useAuthoredFbxDisplayNames)];
 }
 
 function getMaterialColor(material: Material): string | null {
@@ -381,9 +407,13 @@ function textureSlot(
     stringValue(texture.userData.sourcePath) ??
     stringValue(texture.userData.uri) ??
     stringValue(texture.name);
-  if (!source) return { name: slotLabel };
+  if (!source) return { name: slotLabel, textureId: texture.uuid };
   const name = textureSourceFileName(source);
-  return { name, ...(source !== name ? { sourcePath: source } : {}) };
+  return {
+    name,
+    textureId: texture.uuid,
+    ...(source !== name ? { sourcePath: source } : {}),
+  };
 }
 
 function textureSourceReference(
@@ -797,6 +827,11 @@ function buildMaterialEntry(
     emissiveFactor,
     baseColorTexture,
     metallicRoughnessTexture,
+    roughnessTexture: textureSlot(
+      (material as TexturedMaterial).roughnessMap,
+      "Roughness",
+    ),
+    alphaTexture: textureSlot((material as TexturedMaterial).alphaMap, "Alpha"),
     normalTexture,
     emissiveTexture,
     alphaMode: inferAlphaMode(material),
@@ -1299,6 +1334,22 @@ function buildObjectInfo(
     });
   } else if (object instanceof Group) {
     childCount = object.children.length;
+    // Multi-primitive FBX/glTF meshes arrive as a group of render meshes.
+    // Collect immediate surfaces only, keeping this linear across the scene.
+    const materials = new Set<Material>();
+    for (const child of object.children) {
+      if (child instanceof Mesh) {
+        for (const material of getMaterials(
+          getAuthoredSurfaceMaterial(child),
+        )) {
+          materials.add(material);
+        }
+      }
+    }
+    materialNames = [...materials].map((material) =>
+      materialDisplayName(material, material.type),
+    );
+    materialIds = [...materials].map((material) => material.uuid);
   }
 
   const clipNames: string[] = [];
@@ -1377,6 +1428,7 @@ export function collectAssetMetadata(
   const materialBindings = new Map<Material, string[]>();
   const textures = new Map<string, AssetMetadata["textures"][number]>();
   const textureRegistry = new Map<string, Texture>();
+  const canonicalTextureIds = new Map<string, string>();
   const lights: LightEntry[] = [];
   const cameras: CameraEntry[] = [];
   const animationClips = buildAnimationClipMetadata(clips);
@@ -1397,7 +1449,7 @@ export function collectAssetMetadata(
     // Collect ObjectInfo for every traversed node that has a stable
     // selection key (meshes, named groups, lights, cameras).
     const infoKey = resolveSelectionKey(child);
-    if (infoKey) {
+    if (infoKey && child.userData.__ywFbxMaterialPart !== true) {
       objectInfoMap.set(
         infoKey,
         buildObjectInfo(child, clips, infoKey, mmdBoneMetadata),
@@ -1458,7 +1510,11 @@ export function collectAssetMetadata(
         );
         const textureKey = sourceReference
           ? textureSourceKey(sourceReference, channel)
-          : `uuid:${textureId}`;
+          : `uuid:${textureId}:${channel}`;
+        canonicalTextureIds.set(
+          `${textureId}:${channel}`,
+          textures.get(textureKey)?.id ?? textureId,
+        );
         if (textures.has(textureKey)) {
           continue;
         }
@@ -1511,15 +1567,29 @@ export function collectAssetMetadata(
       textureCount: textures.size,
       hasAnimation: clips.length > 0,
       animationClips,
-      hierarchy: buildHierarchyForest(object),
+      hierarchy: buildHierarchyForest(object, currentFile.extension === "fbx"),
       textures: [...textures.values()],
-      materials: [...materials].map((material) =>
-        buildMaterialEntry(
+      materials: [...materials].map((material) => {
+        const entry = buildMaterialEntry(
           material,
           materialBindings.get(material) ?? [],
           currentFile,
-        ),
-      ),
+        );
+        for (const [slot, channel] of [
+          [entry.baseColorTexture, "Base Color"],
+          [entry.metallicRoughnessTexture, "Metalness"],
+          [entry.roughnessTexture, "Roughness"],
+          [entry.normalTexture, "Normal"],
+          [entry.emissiveTexture, "Emissive"],
+          [entry.alphaTexture, "Alpha"],
+        ] as const) {
+          if (slot?.textureId)
+            slot.textureId =
+              canonicalTextureIds.get(`${slot.textureId}:${channel}`) ??
+              slot.textureId;
+        }
+        return entry;
+      }),
       lights,
       cameras,
       objectInfo: Object.fromEntries(objectInfoMap),

@@ -25,7 +25,9 @@ use super::cameras::resolve_cameras;
 use super::lights::resolve_lights;
 use super::material_adapter::{find_material_by_name_fallback, resolve_material_slot};
 use super::mesh_attributes::{expand_indexed_uvs, read_display_opacity};
-use super::mesh_visibility::{is_mesh_active_and_visible, read_mesh_orientation, resolve_purpose};
+use super::mesh_visibility::{
+    is_mesh_active_and_visible, is_prim_active_and_visible, read_mesh_orientation, resolve_purpose,
+};
 use super::node_tree::build_node_tree;
 use super::point_instancer::resolve_point_instancing;
 use super::skel_adapter::{
@@ -112,7 +114,9 @@ pub(crate) fn extract_geometry_from_open_stage_rs(
                     skel_animation_paths.borrow_mut().push(prim_path.clone());
                 }
                 if type_name.as_str() == "PointInstancer" {
-                    instancer_paths.borrow_mut().push(prim_path.clone());
+                    if is_prim_active_and_visible(&stage, prim_path) {
+                        instancer_paths.borrow_mut().push(prim_path.clone());
+                    }
                     return;
                 }
             }

@@ -99,13 +99,16 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-function renderFileOpen(isTauri = false) {
+function renderFileOpen(
+  isTauri = false,
+  currentFile: SelectedFile | null = null,
+) {
   const recordLoadTiming = vi.fn();
   const setSessionGlbBuffer = vi.fn();
   const hook = renderHook(() =>
     useAppFileOpen({
       assetMetadata: null,
-      currentFile: null,
+      currentFile,
       isTauri,
       recordLoadTiming,
       setSessionGlbBuffer,
@@ -155,6 +158,14 @@ afterEach(() => {
 });
 
 describe("useAppFileOpen", () => {
+  it("clears a material navigation request when a file is opened", () => {
+    useViewerStore.getState().requestMaterialNavigation("mat-usd");
+
+    renderFileOpen(false, selected("C:\\assets\\scene.usda"));
+
+    expect(useViewerStore.getState().materialNavigationRequest).toBeNull();
+  });
+
   it("opens a path and publishes loading feedback before committing the result", async () => {
     const path = "C:\\assets\\a.glb";
     const file = selected(path);

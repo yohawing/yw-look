@@ -63,6 +63,16 @@ function fixture() {
   return { inspection };
 }
 describe("IFC Materials in the shared browser", () => {
+  it("opens the requested source material by ID", () => {
+    const { inspection } = fixture();
+    render(
+      <IfcMaterialsPanel
+        inspection={inspection}
+        requestedMaterialId="display:2"
+      />,
+    );
+    expect(screen.getByRole("heading", { name: "Surface red" })).toBeTruthy();
+  });
   it("clears hidden highlighting and restores the selected material on return", () => {
     const { inspection } = fixture();
     const view = render(

@@ -1,3 +1,5 @@
+import { formatLocalizedMessage, useLocale } from "../lib/i18n";
+import { LocalizedError, type LocalizedMessage } from "../lib/localizedMessage";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AmbientLight,
@@ -52,9 +54,10 @@ import {
 } from "../viewport/camera";
 import { createEnvironmentTarget } from "../viewport/environment";
 import {
-  createFxaaComposerState,
-  syncFxaaComposerSize,
-  type FxaaComposerState,
+  createViewportComposerState,
+  disposeViewportComposer,
+  syncViewportComposerSize,
+  type ViewportComposerState,
 } from "../viewport/fxaa";
 import {
   applyViewportBackground,
@@ -84,7 +87,11 @@ import { useSyncRef } from "../viewport/useSyncRef";
 import { useTexturePreview } from "../viewport/useTexturePreview";
 import { useViewportAnimation } from "../viewport/useViewportAnimation";
 import { useViewportSceneLifecycle } from "../viewport/useViewportSceneLifecycle";
-import { mountLoadedPreview } from "../viewport/previewLoadMount";
+import { useFileStore } from "../stores/fileStore";
+import {
+  mountLoadedPreview,
+  mountReloadedPreview,
+} from "../viewport/previewLoadMount";
 import { registerViewportCommandHandlers } from "../viewport/viewportCommands";
 
 export type {
@@ -107,6 +114,7 @@ function buildPreviewLoadInputKey(
 ) {
   return JSON.stringify({
     filePath: currentFile?.path ?? null,
+    reloadRevision: currentFile?.reloadRevision,
     purposeModes,
     usdLoadPolicy,
     variantSelections,
@@ -180,6 +188,7 @@ export function AssetViewport({
   renderScale,
   showShadows,
   showUnlit,
+  ambientOcclusionEnabled = true,
   fxaaEnabled,
   showRendererStats,
   toneMappingMode,
@@ -201,6 +210,7 @@ export function AssetViewport({
   deferredProgress = null,
   onScaleNormalizationChange,
 }: AssetViewportProps) {
+  useLocale();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const statsRef = useRef<HTMLDivElement | null>(null);
   const ambientLightRef = useRef<AmbientLight | null>(null);
@@ -208,10 +218,14 @@ export function AssetViewport({
   const fillLightRef = useRef<DirectionalLight | null>(null);
   const usdInspectionRef = useRef<StageInspection | null>(usdInspection);
   const showShadowsRef = useRef(showShadows);
-  const fxaaStateRef = useRef<FxaaComposerState | null>(null);
+  const fxaaStateRef = useRef<ViewportComposerState | null>(null);
+  const ambientOcclusionEnabledRef = useRef(ambientOcclusionEnabled);
   const fxaaEnabledRef = useRef(fxaaEnabled);
   const sceneContextRef = useRef<SceneContext | null>(null);
   const resetCameraRef = useRef<(() => void) | null>(null);
+  const rendererLifetimeBoundary = getPreviewRenderingPresetForExtension(
+    currentFile?.extension,
+  ).logarithmicDepthBuffer;
   const scaleNormalizationRef = useRef<{
     applied: boolean;
     originalScale: import("three").Vector3;
@@ -251,11 +265,13 @@ export function AssetViewport({
   );
   const latestLoadInputsRef = useRef<{
     filePath: string | null;
+    reloadRevision?: number;
     glbOverride: ArrayBuffer | null;
     inputKey: string;
     usdLoadPolicy: AssetViewportProps["usdLoadPolicy"];
   }>({
     filePath: currentFile?.path ?? null,
+    reloadRevision: currentFile?.reloadRevision,
     glbOverride,
     inputKey: previewLoadInputKey,
     usdLoadPolicy,
@@ -273,6 +289,7 @@ export function AssetViewport({
   useLayoutEffect(() => {
     latestLoadInputsRef.current = {
       filePath: currentFile?.path ?? null,
+      reloadRevision: currentFile?.reloadRevision,
       glbOverride,
       inputKey: previewLoadInputKey,
       usdLoadPolicy,
@@ -307,7 +324,9 @@ export function AssetViewport({
   );
   const activePreviewPathRef = useRef<string | null>(activePreviewPath);
   const [overlayMode, setOverlayMode] = useState<ViewerMode>("empty");
-  const [errorDetail, setErrorDetail] = useState<string | null>(null);
+  const [errorDetail, setErrorDetail] = useState<
+    string | LocalizedMessage | null
+  >(null);
   const [loadingStage, setLoadingStage] = useState<LoadingStageSnapshot | null>(
     null,
   );
@@ -333,6 +352,7 @@ export function AssetViewport({
   useSyncRef(backfaceCullingRef, backfaceCulling);
   useSyncRef(textureFilterModeRef, textureFilterMode);
   useSyncRef(showShadowsRef, showShadows);
+  useSyncRef(ambientOcclusionEnabledRef, ambientOcclusionEnabled);
   useSyncRef(fxaaEnabledRef, fxaaEnabled);
   useSyncRef(showSkeletonRef, showSkeleton);
   useSyncRef(showLocalAxisRef, showLocalAxis);
@@ -467,6 +487,7 @@ export function AssetViewport({
   useViewportSceneLifecycle({
     activeCameraIdRef,
     activeCameraRef,
+    ambientOcclusionEnabledRef,
     activeEnvironmentPresetRef,
     ambientLightRef,
     backgroundPresetRef,
@@ -581,7 +602,7 @@ export function AssetViewport({
     const width = context.renderer.domElement.clientWidth;
     const height = context.renderer.domElement.clientHeight;
 
-    syncFxaaComposerSize(fxaaState, width, height, pixelRatio);
+    syncViewportComposerSize(fxaaState, width, height, pixelRatio);
   }, [renderScale]);
 
   useEffect(() => {
@@ -695,6 +716,10 @@ export function AssetViewport({
       return;
     }
 
+    const isExternalReload =
+      currentFile?.reloadRevision !== undefined &&
+      activePreviewPathRef.current === currentFile.path &&
+      context.mountedObject !== null;
     const isDeferredGlbReload =
       currentFile !== null &&
       glbOverride !== null &&
@@ -728,7 +753,7 @@ export function AssetViewport({
       activePreviewPathRef.current === currentFile.path &&
       context.mountedObject !== null;
 
-    if (!isDeferredGlbReload && !isPendingGlbReload) {
+    if (!isExternalReload && !isDeferredGlbReload && !isPendingGlbReload) {
       cleanupSceneContext(context);
       assetResourceMetricsRef.current = null;
       publishResourceDiagnostics(context);
@@ -826,7 +851,7 @@ export function AssetViewport({
       return;
     }
 
-    if (isPendingGlbReload) {
+    if (isPendingGlbReload && !isExternalReload) {
       return;
     }
 
@@ -838,12 +863,12 @@ export function AssetViewport({
     const loadingClock = createLoadingStageClock("scan", loadingStartedAt);
     const reportLoadingStage = (stage: LoadingStageId) => {
       if (disposed) return;
-      if (isDeferredGlbReload) return;
+      if (isDeferredGlbReload || isExternalReload) return;
 
       setLoadingStage(loadingClock.report(stage));
     };
 
-    if (!isDeferredGlbReload) {
+    if (!isDeferredGlbReload && !isExternalReload) {
       onFeedbackChange({
         mode: "loading",
         message: `Loading ${currentFile.fileName}`,
@@ -877,9 +902,14 @@ export function AssetViewport({
     };
     loadPreviewObject(currentFile, context.renderer, {
       usdLoadPolicy,
-      getUsdInspection: () => usdInspectionRef.current,
+      getUsdInspection: () =>
+        isExternalReload ? null : usdInspectionRef.current,
       variantSelections,
-      glbOverride: glbOverride ?? null,
+      glbOverride:
+        isExternalReload &&
+        useFileStore.getState().externalReload?.status === "loading"
+          ? null
+          : (glbOverride ?? null),
       disabledOptionalLoaderPackIds,
       incompatibleOptionalLoaderPackIds,
       signal: abortController.signal,
@@ -897,7 +927,9 @@ export function AssetViewport({
       .then(async (result) => {
         reportLoadingStage("scene");
         reportLoadingStage("ui");
-        readyFeedbackBase = await mountLoadedPreview(result, {
+        readyFeedbackBase = await (
+          isExternalReload ? mountReloadedPreview : mountLoadedPreview
+        )(result, {
           clearActiveCameraId: () => onActiveCameraResetRef.current?.(),
           context,
           currentFile,
@@ -929,7 +961,7 @@ export function AssetViewport({
             key: keyLightRef.current,
             fill: fillLightRef.current,
           },
-          preserveCameraView: isDeferredGlbReload,
+          preserveCameraView: isDeferredGlbReload || isExternalReload,
           replaceExistingPreview: isDeferredGlbReload,
           refs: {
             activeCameraIdRef,
@@ -964,6 +996,12 @@ export function AssetViewport({
         if (!readyFeedbackBase || disposed) {
           return;
         }
+        if (isExternalReload && currentFile.reloadRevision !== undefined) {
+          useFileStore
+            .getState()
+            .finishExternalReload(currentFile.reloadRevision);
+          onSelectMeshRef.current?.(null);
+        }
         setErrorDetail(null);
         resetCameraRef.current = () => {
           frameCurrentMountedObject(
@@ -982,7 +1020,14 @@ export function AssetViewport({
           return;
         }
         if (isAbortError(error)) {
-          if (isDeferredGlbReload) {
+          if (isDeferredGlbReload || isExternalReload) {
+            if (isExternalReload && currentFile.reloadRevision !== undefined)
+              useFileStore
+                .getState()
+                .finishExternalReload(
+                  currentFile.reloadRevision,
+                  "Reload cancelled",
+                );
             setLoadingStage(null);
             setDeferredTexture(null);
             return;
@@ -1009,11 +1054,17 @@ export function AssetViewport({
           error,
           "Failed to load preview.",
         );
-        if (isDeferredGlbReload) {
+        if (isDeferredGlbReload || isExternalReload) {
+          if (isExternalReload && currentFile.reloadRevision !== undefined)
+            useFileStore
+              .getState()
+              .finishExternalReload(currentFile.reloadRevision, message);
           onFeedbackChange({
             mode: "ready",
             message: `Preview ready: ${currentFile.fileName}`,
             warning: message,
+            warningTranslation:
+              error instanceof LocalizedError ? error.translation : undefined,
             canResetCamera: true,
           });
           setLoadingStage(null);
@@ -1031,7 +1082,9 @@ export function AssetViewport({
         // to "loading" when activePreviewPath !== currentFile.path.
         setActivePreviewPath(currentFile.path);
         setOverlayMode(mode);
-        setErrorDetail(message);
+        setErrorDetail(
+          error instanceof LocalizedError ? error.translation : message,
+        );
         onMetadataChange(
           mode === "missingReference" && currentFile
             ? buildMissingReferenceMetadata(
@@ -1073,7 +1126,10 @@ export function AssetViewport({
             usdLoadPolicy === "noPayloads" &&
             nextLoadInputs.usdLoadPolicy === "noPayloads" &&
             nextLoadInputs.inputKey !== previewLoadInputKey));
-      if (keepMountedForDeferredReload) {
+      const keepMountedForExternalReload =
+        nextLoadInputs.filePath === currentFile?.path &&
+        nextLoadInputs.reloadRevision !== undefined;
+      if (keepMountedForDeferredReload || keepMountedForExternalReload) {
         return;
       }
       cleanupSceneContext(context);
@@ -1133,9 +1189,9 @@ export function AssetViewport({
   });
 
   useEffect(() => {
-    if (!fxaaEnabled) {
+    if (!ambientOcclusionEnabled && !fxaaEnabled) {
       // Leave the composer in place (so re-enabling is cheap) and
-      // rely on fxaaEnabledRef to skip it in the render loop.
+      // rely on the render loop to skip it.
       return;
     }
     const context = sceneContextRef.current;
@@ -1146,14 +1202,14 @@ export function AssetViewport({
     (async () => {
       const host = hostRef.current;
       if (!host) return;
-      const state = await createFxaaComposerState(context, host, {
+      const state = await createViewportComposerState(context, host, {
         isCancelled: () => cancelled,
       });
       if (!state) {
         return;
       }
       if (cancelled) {
-        state.composer.dispose();
+        disposeViewportComposer(state);
         return;
       }
       fxaaStateRef.current = state;
@@ -1161,7 +1217,7 @@ export function AssetViewport({
     return () => {
       cancelled = true;
     };
-  }, [fxaaEnabled]);
+  }, [ambientOcclusionEnabled, fxaaEnabled, rendererLifetimeBoundary]);
 
   useTexturePreview({
     currentFile,
@@ -1256,7 +1312,9 @@ export function AssetViewport({
         errorDetail={
           effectiveOverlayMode === "loadFailed" ||
           effectiveOverlayMode === "missingReference"
-            ? errorDetail
+            ? errorDetail === null
+              ? null
+              : formatLocalizedMessage(errorDetail)
             : null
         }
         hasAnimation={hasAnimation}

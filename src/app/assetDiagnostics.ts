@@ -1,3 +1,4 @@
+import { formatLocalizedMessage } from "../lib/i18n";
 import type { AssetIssue } from "../lib/usd";
 import type { StageInspection, StageSummary } from "../lib/usd";
 import type { FileState } from "../stores/fileStore";
@@ -111,7 +112,13 @@ export function buildDiagnosticWarnings({
   usdIssues,
   viewerFeedback,
 }: AssetDiagnosticInputs): string[] {
-  const nextWarnings = [...splitViewerWarnings(viewerFeedback.warning)];
+  const nextWarnings = [
+    ...splitViewerWarnings(
+      viewerFeedback.warningTranslation
+        ? formatLocalizedMessage(viewerFeedback.warningTranslation)
+        : viewerFeedback.warning,
+    ),
+  ];
 
   for (const texture of assetMetadata?.textures ?? []) {
     if (texture.sourceKind === "unresolved") {

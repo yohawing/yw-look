@@ -1,3 +1,4 @@
+import { t, useLocale } from "../lib/i18n";
 import type { CompositionArc, StageInspection } from "../lib/usd";
 import { Badge } from "./ui/Badge";
 import { KeyValueRows } from "./ui/KeyValueRows";
@@ -14,10 +15,11 @@ export function UsdSelectedSources({
   primPath,
   payloadLoaded,
 }: UsdSelectedSourcesProps) {
+  useLocale();
   if (!inspection || !primPath) return null;
   const sections = [
-    { title: "References", arcs: inspection.references },
-    { title: "Payloads", arcs: inspection.payloads },
+    { title: t("references"), arcs: inspection.references },
+    { title: t("payloads"), arcs: inspection.payloads },
   ];
   return sections.map(({ title, arcs }) => {
     const selected = arcs.filter((arc) => arc.sourcePrim === primPath);
@@ -41,19 +43,19 @@ export function UsdSelectedSources({
               rows={[
                 {
                   id: "asset",
-                  label: "Asset",
+                  label: t("asset"),
                   value: arc.assetPath || "This layer",
                   mono: true,
                 },
                 {
                   id: "target",
-                  label: "Target prim",
+                  label: t("target_prim"),
                   value: arc.targetPrim || "Default prim",
                   mono: true,
                 },
                 {
                   id: "state",
-                  label: "State",
+                  label: t("state"),
                   value: (
                     <Badge
                       size="sm"
