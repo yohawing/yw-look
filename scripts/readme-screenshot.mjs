@@ -21,8 +21,8 @@ const config = JSON.parse(
 const version = JSON.parse(
   await fs.readFile(path.join(root, "package.json")),
 ).version;
-const imagePath = path.join(root, "docs/images/hero.png");
-const manifestPath = path.join(root, "docs/images/hero.capture.json");
+const imagePath = path.join(root, "assets/screenshots/hero.png");
+const manifestPath = path.join(root, "assets/screenshots/hero.capture.json");
 const args = process.argv.slice(2);
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -36,7 +36,7 @@ async function check() {
     png: await fs.readFile(imagePath),
   });
   const readme = await fs.readFile(path.join(root, "README.md"), "utf8");
-  if (!readme.includes("(docs/images/hero.png)"))
+  if (!readme.includes("(assets/screenshots/hero.png)"))
     throw new Error("README does not reference the captured image.");
   console.log("README screenshot gate passed.");
 }
@@ -266,7 +266,7 @@ async function capture() {
     validateCapture({ manifest, config, version, fingerprint, png });
     await fs.writeFile(imagePath, png);
     await fs.writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-    console.log("Updated docs/images/hero.png and hero.capture.json");
+    console.log("Updated assets/screenshots/hero.png and hero.capture.json");
   } finally {
     await browser?.close();
     try {

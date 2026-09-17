@@ -4,7 +4,7 @@
 
 3Dモデルやテクスチャを開いて、メッシュ・アニメーション・ファイルの情報を確認するTauri v2+Three.js製のデスクトップアプリです。受け取ったデータを見たいとき、フォルダ内のアセットを見比べたいとき、DCCツールへ読み込む前の確認に使えます。
 
-![yw-look screenshot](docs/images/hero.png)
+![yw-look screenshot](assets/screenshots/hero.png)
 
 ## 対応フォーマット
 
