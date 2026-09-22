@@ -1,90 +1,131 @@
-# yw-look ― 3Dモデルインスペクター
+# yw-look
 
-**様々な形式の3Dモデルをクイックに開いて確認できるアプリです**
+**A 3D model viewer for quick inspection.**
 
-3Dモデルやテクスチャを開いて、メッシュ・アニメーション・ファイルの情報を確認するTauri v2+Three.js製のデスクトップアプリです。受け取ったデータを見たいとき、フォルダ内のアセットを見比べたいとき、DCCツールへ読み込む前の確認に使えます。
+Open the model. Find its textures. Inspect the scene. Get the context you need
+before bringing an asset into your DCC.
 
-![yw-look screenshot](assets/screenshots/hero.png)
+![yw-look showing a USDZ model with its file information](assets/screenshots/hero.png)
 
-## 対応フォーマット
+## Download
 
-「✅️」はプレビュー用の読み込み経路が実装済みであることを示します。形式固有の機能や制限は備考を参照してください。
+Current releases are for Windows x64.
 
-### 3Dモデル・モーション（標準対応）
+**[Download for Windows](https://github.com/yohawing/yw-look/releases/latest)**
 
-| フォーマット | 拡張子                         | 対応状況     | 備考                                                                                                                                                                                                                   |
-| ------------ | ------------------------------ | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| glTF         | `.gltf` `.glb`                 | ✅️           | [Three.js GLTFLoader](https://github.com/mrdoob/three.js/blob/r185/examples/jsm/loaders/GLTFLoader.js)を使用。モデル・マテリアル・アニメーションのプレビュー。外部参照のあるデータは、テクスチャやバッファも必要です。 |
-| FBX          | `.fbx`                         | ✅️           | [ufbx](https://github.com/ufbx/ufbx)を使用。モデル・テクスチャ・アニメーションのプレビュー。制作ツール固有のシェーダーやリグの完全再現は対象外です。                                                                   |
-| OBJ          | `.obj`                         | ✅️           | [Three.js OBJLoader](https://github.com/mrdoob/three.js/blob/r185/examples/jsm/loaders/OBJLoader.js)を使用。静的メッシュの表示。MTLと外部テクスチャの参照を読み込みます。                                              |
-| PLY          | `.ply`                         | ✅️           | [Three.js PLYLoader](https://github.com/mrdoob/three.js/blob/r185/examples/jsm/loaders/PLYLoader.js)を使用。メッシュ・点群の表示。Gaussian Splat形式のPLYには追加パックが必要です。                                    |
-| STL          | `.stl`                         | ✅️           | [Three.js STLLoader](https://github.com/mrdoob/three.js/blob/r185/examples/jsm/loaders/STLLoader.js)を使用。メッシュ形状の確認向けです。                                                                               |
-| 3MF          | `.3mf`                         | 一部対応     | Core 3MFのメッシュ・部品階層・単位・基本マテリアルと、頂点カラー・PNG/JPEGテクスチャをプレビューします。外部モデル参照や未対応の必須拡張は読み込みを拒否し、その他の未対応要素は警告します。                           |
-| COLLADA      | `.dae`                         | 一部対応     | [Three.js ColladaLoader](https://github.com/mrdoob/three.js/blob/r185/examples/jsm/loaders/ColladaLoader.js)を使用。モデルと外部テクスチャのプレビュー。現在の読み込み経路ではアニメーションクリップを取り込みません。 |
-| Rhino 3DM    | `.3dm`                         | ✅️           | Windowsでは分離プロセスのopenNURBS helperでmesh/Brep/extrusion/SubD、layer/instance、basic materialをプレビューします（curve/point/点群は警告して省略）。その他の環境ではThree.js Rhino3dmLoaderを使用します。         |
-| USD          | `.usd` `.usda` `.usdc` `.usdz` | 一部対応     | [openusd（Rust）](https://github.com/mxpv/openusd)を使用。形状・マテリアル・一部アニメーションのプレビューと、レイヤー・Prim・バリアント等の検査。UsdSkelやMaterialXなどは対応範囲に制限があり、警告を表示します。     |
-| Alembic      | `.abc`                         | 条件付き対応 | [Alembic](https://github.com/alembic/alembic)を使う専用ヘルパーを使用。メッシュ形状・頂点アニメーションのプレビュー。対応するネイティブ変換ヘルパーが必要です（Windows x64 / macOS arm64向け）。                       |
-| BVH          | `.bvh`                         | ✅️           | [Three.js BVHLoader](https://github.com/mrdoob/three.js/blob/r185/examples/jsm/loaders/BVHLoader.js)を使用。骨格とモーションのプレビュー。モデル形状を含む形式ではありません。                                         |
+Run the installer, then drag a file into the window. If you register the file
+types, a double-click opens the asset as well. Windows builds are not signed, so
+Windows may show a warning. There is no general macOS release yet.
 
-IFC・Rhino 3DM・3MFは、Settingsの **CAD Loader Pack** でまとめて有効／無効を切り替えます。関連ランタイムは引き続きアプリに同梱します。
+## What you can inspect
 
-Rhino 3DMは編集・保存、Grasshopper定義やRhinoプラグイン固有データの実行、Rhino表示モードの完全再現には対応しません。未変換の要素や不足リソースは警告として表示します。
+**Open a 3D asset in one step.** Drag a new asset into yw-look and it opens. You
+do not need to install a heavy DCC tool.
 
-### 画像・テクスチャ（標準対応）
+**See detailed file information.** The sidebar shows details about the asset:
+polygon count, number of materials, draw calls, and more.
 
-| フォーマット | 拡張子         | 対応状況     | 備考                                                                                                                                                                                 |
-| ------------ | -------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| PNG          | `.png`         | ✅️           | [Three.js TextureLoader](https://github.com/mrdoob/three.js/blob/r185/src/loaders/TextureLoader.js)を使用。画像と透過部分の確認に使えます。                                          |
-| JPEG         | `.jpg` `.jpeg` | ✅️           | [Three.js TextureLoader](https://github.com/mrdoob/three.js/blob/r185/src/loaders/TextureLoader.js)を使用。写真やカラーテクスチャのプレビュー。                                      |
-| TGA          | `.tga`         | ✅️           | [Three.js TGALoader](https://github.com/mrdoob/three.js/blob/r185/examples/jsm/loaders/TGALoader.js)を使用。TGAテクスチャのプレビュー。                                              |
-| DDS          | `.dds`         | 条件付き対応 | [Three.js DDSLoader](https://github.com/mrdoob/three.js/blob/r185/examples/jsm/loaders/DDSLoader.js)を使用。圧縮テクスチャのプレビュー。圧縮形式と実行環境の対応状況に依存します。   |
-| PSD          | `.psd`         | 一部対応     | [psd（Rust）](https://docs.rs/psd/0.3.5/psd/)を使用。レイヤーを合成した画像として表示します。レイヤー編集用の表示ではありません。                                                    |
-| HDR          | `.hdr`         | ✅️           | [Three.js RGBELoader](https://github.com/mrdoob/three.js/blob/r185/examples/jsm/loaders/RGBELoader.js)を使用。HDR画像をデコードしてプレビューします。                                |
-| OpenEXR      | `.exr`         | ✅️           | [Three.js EXRLoader](https://github.com/mrdoob/three.js/blob/r185/examples/jsm/loaders/EXRLoader.js)を使用。EXR画像をデコードしてプレビューします。                                  |
-| KTX2         | `.ktx2`        | 条件付き対応 | [Three.js KTX2Loader](https://github.com/mrdoob/three.js/blob/r185/examples/jsm/loaders/KTX2Loader.js)を使用。圧縮テクスチャのプレビュー。レンダラーに合わせてトランスコードします。 |
+**Find problems in an asset.** Data that could not be loaded and features that
+are not supported appear as warnings. You can see missing texture references or
+unsupported skeletons before you open the file in your DCC.
 
-### 追加ローダーパック
+**Check motion data in detail.** Switch between the loaded clips on the timeline
+editor. Play, pause, step frames, and change the speed while you watch the
+bones. Set a loop range to check one part again and again.
 
-対応パックをインストールすると、次の形式をプレビューできます。
+**Check textures in the image view.** List the textures loaded with the model and
+filter them by name or channel, such as Base Color or Normal. Open a texture and
+zoom in to check the details.
 
-| フォーマット   | 拡張子                                  | 必要なパック   | 対応状況 | 備考                                                                                                                                                    |
-| -------------- | --------------------------------------- | -------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| VRM            | `.vrm`                                  | VRM            | ✅️       | [three-vrm](https://github.com/pixiv/three-vrm)を使用。VRMモデルを専用ローダーで読み込みます。`.vrma`は未実装です。                                     |
-| MMDモデル      | `.pmd` `.pmx` `.vmd`                    | MMD            | ✅️       | [three-mmd-loader](https://github.com/yohawing/three-mmd-loader)を使用。モデル・テクスチャ・モーフのプレビュー。MMD固有の骨制約などには制限があります。 |
-| Gaussian Splat | `.ply` `.splat` `.spz` `.ksplat` `.sog` | Gaussian Splat | ✅️       | [Spark](https://github.com/sparkjs-dev/spark)を使用。Gaussian Splatデータを専用レンダラーで表示します。PLYは内容からメッシュ・点群・Splatを判別します。 |
+**Check material settings.** The material list shows the shader type, texture
+bindings, and parameters such as base color, metallic, and roughness. Search
+narrows the list down even when there are hundreds of materials.
 
-## 使い始める
+## Supported formats
 
-1. [Releases](https://github.com/yohawing/yw-look/releases/latest)からインストーラーをダウンロードし、インストールします。
-2. アプリを起動し、ファイルをウィンドウへドラッグ＆ドロップするか、拡張子を関連付けすればそのまま開けます。
-3. 右側のサイドバーでファイル情報や警告を確認します。
+Support describes what can be previewed or inspected. It does not guarantee that
+every shader, rig, or feature from the authoring application is reproduced.
 
-## CLIの使い方
+### 3D models and motion
 
-`yw-look`コマンドで、モデルの読み込みチェックやPNG出力を実行できます。実行ファイルのあるディレクトリをPATHに追加するか、実行ファイルをフルパスで指定してください。
+| Format     | What to expect                                                                                    |
+| ---------- | ------------------------------------------------------------------------------------------------- |
+| glTF / GLB | Models, materials, and animation. External textures and buffers must remain available.            |
+| FBX        | Models, textures, and animation. Application-specific shaders and rigs are not fully reproduced.  |
+| OBJ        | Static meshes, with MTL and external texture references.                                          |
+| PLY / STL  | Mesh inspection; PLY also supports point clouds. Gaussian Splat PLY files need the separate pack. |
+| COLLADA    | Models and external textures. Animation clips are not imported.                                   |
+| Alembic    | Mesh geometry and vertex animation, using the corresponding native helper.                        |
+| BVH        | Skeleton and motion. This format does not contain a model surface.                                |
+
+### USD stages
+
+USD, USDA, USDC, and USDZ support includes geometry, materials, some animation,
+and inspection of layers, Prims, variants, references, and payload information.
+Support is partial: UsdSkel, MaterialX, and other features have limitations.
+Read the warnings for the specific asset you open.
+
+### Images and textures
+
+| Format                       | Notes                                                         |
+| ---------------------------- | ------------------------------------------------------------- |
+| PNG, JPEG, TGA, HDR, OpenEXR | Image preview.                                                |
+| DDS, KTX2                    | Compression and runtime support affect what can be displayed. |
+| PSD                          | A composite image preview, not a layer editor.                |
+
+### Loader packs
+
+| Pack or setting | Formats and limits                                                                                                                                                                         |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| CAD Loader Pack | IFC, Rhino 3DM, and 3MF. Rhino editing, Grasshopper execution, and full display-mode reproduction are not supported. 3MF external models and unsupported required extensions are rejected. |
+| VRM             | VRM models. VRMA is not implemented.                                                                                                                                                       |
+| MMD             | PMD, PMX, and VMD. MMD-specific bone constraints have limitations.                                                                                                                         |
+| Gaussian Splat  | PLY, SPLAT, SPZ, KSPLAT, and SOG.                                                                                                                                                          |
+
+Check pack availability and enabled status in Settings. A pack requirement does
+not mean a feature is paid-only.
+
+## Command line
+
+The `yw-look` command checks whether a model loads and writes a PNG. Add the
+folder that holds the executable to your PATH, or call the executable by its
+full path. No development tools are needed.
 
 ```bash
-# 読み込みの成功・失敗を終了コードで確認
+# Report success or failure through the exit code
 yw-look --check --in "path/to/model.fbx"
 
-# モデル単体をPNGへ出力
+# Write a single model to a PNG
 yw-look --shot --in "path/to/model.glb" --out "out.png" --size 1920x1080 --bg transparent
 ```
 
-`--in`は入力ファイル、`--out`はPNGの保存先です。`--size`と`--bg`は省略できます。
+`--in` is the input file and `--out` is where the PNG is written. `--size` and
+`--bg` are optional.
 
-CLIは同梱の画面で処理するため、Node.js・Rustなどの開発環境は不要です。
+## Supporter edition
 
-## 不具合の報告・要望
+yw-look is free. The supporter edition helps keep development going, and
+supporters receive beta builds with new features before the free release. It is
+sold on [BOOTH](https://yohawing.booth.pm/).
 
-- 不具合は[バグ報告フォーム](https://github.com/yohawing/yw-look/issues/new?template=bug_report.yml)からお願いします。アプリの `Diagnostics` タブにある **Copy Diagnostics** の内容を貼り付けていただけると調査が早くなります。
-- 診断情報にはローカルのファイルパスやアセット名が含まれます。公開したくない情報がないか、投稿前にご確認ください。
-- アプリはテレメトリを送信しません。ログや診断情報が自動で送られることはありません。
+Please try the free edition with your own files before buying.
 
-## このリポジトリについて
+## Reporting a problem
 
-配布物の公開と不具合報告の受け付けに使用しています。アプリケーションのソースコードは含まれていません。
+Open the
+[bug report form](https://github.com/yohawing/yw-look/issues/new?template=bug_report.yml).
+Pasting the output of **Copy Diagnostics**, in the app's Diagnostics tab, makes
+a report much easier to act on.
 
-- [変更履歴](CHANGELOG.md)
-- [利用条件](LICENSE.md)（商用の制作業務を含めて自由に使えます）
-- [第三者コンポーネントのライセンス](THIRD_PARTY_NOTICES.md)
+Diagnostics include local file paths and asset names. Please check what you are
+sharing before you post. The app sends no telemetry, and it never uploads logs
+or diagnostics on its own.
+
+## About this repository
+
+This repository carries the downloads and the bug report form. The application
+source is not published here.
+
+- [Changelog](CHANGELOG.md)
+- [Terms of use](LICENSE.md), including commercial production work
+- [Third-party licenses](THIRD_PARTY_NOTICES.md)
