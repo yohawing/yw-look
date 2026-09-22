@@ -16,6 +16,13 @@ Native FBX preview import statically links
 [ufbx](https://github.com/ufbx/ufbx) through its official Rust bindings.
 ufbx and the bindings are available under `MIT OR PDDL-1.0`.
 
+## web-ifc
+
+The IFC loader bundles [web-ifc](https://github.com/ThatOpen/engine_web-ifc)
+under the Mozilla Public License 2.0. yw-look uses the published package
+unmodified; its source is available from that repository and from
+[npm](https://www.npmjs.com/package/web-ifc).
+
 ## Sample assets
 
 Sample assets include materials derived from the
