@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.4.0 (Unreleased)
+## v0.4.0 (2026-09-24)
 
 ### Asset tabs and inspection
 
@@ -29,7 +29,7 @@
 
 ### Known limitations
 
-- This is an unpublished Windows x64 NSIS release candidate. Automated source checks passed locally; clean-environment packaged CLI validation, installation, and the published updater roundtrip remain pending.
+- This is a published Windows x64 NSIS release. Automated source checks passed locally; clean-environment packaged CLI validation, installation, and the published updater roundtrip remain pending.
 - Windows artifacts intentionally omit Authenticode; unknown-publisher or SmartScreen warnings may appear. Updater signature verification remains required.
 - macOS distribution, Developer ID signing, and notarization remain postponed until the paid Apple Developer Program is resumed.
 - Beta delivery requires a valid token and a published beta release. The provisioned feed has not passed the beta update roundtrip.
@@ -53,7 +53,7 @@
 
 #### GitHub Release install and updater roundtrip
 
-- Windows: not verified — v0.4.0 is not published. Clean installation and updating from v0.3.5 through the published feed remain pending.
+- Windows: not verified — clean installation and updating from v0.3.5 through the published feed remain pending.
 - macOS: not verified — no macOS updater artifact is planned for v0.4.0.
 
 ## v0.3.5 (2026-09-17)
