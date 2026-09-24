@@ -1,5 +1,61 @@
 # Changelog
 
+## v0.4.0 (Unreleased)
+
+### Asset tabs and inspection
+
+- Added asset tabs with independent display settings, camera framing, and playback state. Loaded GLB, PMX, and PMD models are retained in a bounded tab cache.
+- Added read-only UV inspection, shared UV overlay controls, and per-tab asset statistics.
+- Corrected indexed USD UV mapping across vertex, face-varying, uniform, and constant interpolation, and clarified MaterialX, Points, and animation-range inspection warnings.
+- Added independent bone and joint overlays, authored camera and light helpers, field-of-view and orthographic controls, and separate grid and world-axis controls.
+- Automatically show bones when opening bone-only assets or standalone motion previews, and align bone colors with the wireframe display.
+- Improved framing in narrow viewports, kept toolbar popovers within the window, and preserved camera framing when toggling viewport guides.
+- Added an action to reveal listed files in Windows Explorer and refreshed the application branding.
+
+### Images and rendering
+
+- Added image exposure and RGBA controls, pixel-accurate zoom, and equirectangular sky previews while preserving image navigation state.
+- Fixed ambient occlusion with shared logarithmic depth, including orthographic views and switches between model formats.
+- Updated the MMD runtime to the published three-mmd-loader 0.8.4 and connected manual morph overrides to paused playback, animation, seeking, and tab restoration.
+- Avoided reloading models when saving unchanged loader settings.
+
+### Updates and release infrastructure
+
+- Added a saved beta token field for a separately configured supporter update feed. The feed is provisioned, while a beta release and end-to-end delivery verification remain pending; this release does not announce beta access for sale.
+- Restricted the supporter download endpoint to installers from the selected release.
+- Added stable-release mirroring from the private development repository to the public distribution repository, including updater assets and changelog synchronization.
+- Isolated native verification profiles and cleanup so test runs do not modify normal application settings, recent files, or file associations.
+- Prepared bilingual product pages and guides; website publication is tracked separately from the desktop release.
+
+### Known limitations
+
+- This is an unpublished Windows x64 NSIS release candidate. Automated source checks passed locally; clean-environment packaged CLI validation, installation, and the published updater roundtrip remain pending.
+- Windows artifacts intentionally omit Authenticode; unknown-publisher or SmartScreen warnings may appear. Updater signature verification remains required.
+- macOS distribution, Developer ID signing, and notarization remain postponed until the paid Apple Developer Program is resumed.
+- Beta delivery requires a valid token and a published beta release. The provisioned feed has not passed the beta update roundtrip.
+- Model retention is limited to the active tab and up to two inactive GLB/PMX/PMD tabs; other formats may reload when switching tabs.
+- Timeline-internal translation, native language-change behavior, and native Chinese/Korean language review remain unverified. Chinese support covers Simplified Chinese.
+- CAD runtimes remain grouped in Settings; the NSIS component page does not separately install or remove the CAD Loader Pack.
+- USD and CAD previews retain their documented bounded-format limitations, including the upstream USDC integer-compressed float-array decoding limitation.
+- MMD physics remains disabled by default.
+
+### Distribution verification
+
+#### Windows signing and SmartScreen
+
+- Status: not verified
+- Details: Authenticode is intentionally omitted. Clean-environment SmartScreen behavior has not been verified for v0.4.0.
+
+#### macOS codesign, notarization, and Gatekeeper
+
+- Status: not verified
+- Details: v0.4.0 targets Windows only; no macOS artifact or signing validation is included.
+
+#### GitHub Release install and updater roundtrip
+
+- Windows: not verified — v0.4.0 is not published. Clean installation and updating from v0.3.5 through the published feed remain pending.
+- macOS: not verified — no macOS updater artifact is planned for v0.4.0.
+
 ## v0.3.5 (2026-09-17)
 
 ### Viewer and workflow
