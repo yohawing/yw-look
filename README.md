@@ -11,7 +11,7 @@ before bringing an asset into your DCC.
 
 Current releases are for Windows x64.
 
-**[Download for Windows](https://github.com/yohawing/yw-look/releases/latest)**
+**[Download for Windows](https://github.com/yohawing/yw-look/releases/download/v0.4.1/yw-look_0.4.1_Windows_x64-setup.exe)**
 
 Run the installer, then drag a file into the window. If you register the file
 types, a double-click opens the asset as well. Windows builds are not signed, so
