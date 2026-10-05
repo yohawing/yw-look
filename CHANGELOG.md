@@ -1,5 +1,260 @@
 # Changelog
 
+## v0.4.1 (2026-10-05)
+
+### Public update summary
+
+```json
+{
+  "ja": [
+    "タブを切り替えてもモデルとUSDの読み込みを保持。ファイル一覧・履歴からタブや新しいウィンドウを選んで開けるように改善。",
+    "オブジェクトの表示切り替え、選択判定、右ドラッグのカメラ操作を改善。FBXのDDSテクスチャ、BVHの位置チャンネル、EXR画像の向きを修正。",
+    "表示設定と統計表示を再起動後も保持し、更新インストール前に設定の保存完了を待つように修正。設定に公式サイト・ガイド・更新履歴へのリンクを追加。",
+    "Windows x64向けの無料安定版です。β版トークンを削除すると安定版の更新を確認できますが、インストール済みの版は削除操作だけでは変わりません。"
+  ],
+  "en": [
+    "Retain models and pending USD loads across tab switches, and choose a tab or a new window when opening files from lists and history.",
+    "Improved object visibility, picking, and right-drag camera navigation. Fixed FBX DDS textures, BVH position channels, and EXR image orientation.",
+    "Retain display settings and statistics across restarts, wait for settings to finish saving before update installation, and add website, guide, and update history links to Settings.",
+    "This free stable release targets Windows x64. Removing a beta token lets you check the stable update channel but does not itself change the installed version."
+  ]
+}
+```
+
+### Files, tabs, and startup
+
+- Retain model resources and pending USD loads across tab switches, avoid duplicate restoration, and retain the previous display if an additional payload fails.
+- Use list and history clicks to replace the current asset. Context menus can explicitly open a tab or a new window, detach tabs, and copy names and paths.
+- Route tab-bar and Ctrl drops to a new tab. Windows external opens follow the tab preference; explicit new-window requests remain separate.
+- Detect changes to resolved glTF external buffers and images when returning to a tab.
+- Overlap startup preparation and defer unused image lighting work.
+
+### Viewing and formats
+
+- Add per-object visibility controls and improve GPU picking, including multi-material and MMD meshes. Avoid repeated whole-scene layer updates during picking warmup.
+- Share equivalent MMD body/outline geometry layouts while preserving source geometry ownership.
+- Use pointer capture for right-drag camera navigation and release navigation on focus loss.
+- Correct FBX DDS orientation and native texture previews, allow more time for native FBX conversion, align BVH position channels with Blender, and display MMD comments.
+- Use a dropdown for environment maps, fix foreground ambient-occlusion overlap and OpenEXR orientation, and use GTAO with ambient occlusion off by default.
+- Clarify USD Points and splat warnings. Windows Explorer thumbnails are not included.
+
+### Settings and updates
+
+- Fix the close button leaving the app open, retain display settings and the statistics overlay across restarts, and preserve history, beta tokens, and loader packs when resetting settings.
+- Wait for queued settings and viewport edits to finish saving before handing a downloaded update to the installer. A failed save prevents installation.
+- Add official website, user guide, update history, and bug report links to Settings, and reorganize image and projection controls.
+- Publish bilingual update history after verifying release delivery. Windows release installers are named `yw-look_0.4.1_Windows_x64-setup.exe`.
+
+### Known limitations
+
+- The stable installer requires no beta token. The supporter feed continues to select beta.3; publishing this stable release does not move token holders to it. Remove the token and check the stable channel to request a newer stable version. The actual beta-to-stable install, restart, and settings roundtrip remains unverified.
+- Native OS drag delivery and Ctrl detection remain unverified end to end. Injected events do not prove an OS drag.
+- Dependency detection uses file metadata and known loader paths. Active-tab edits, OBJ/MTL, nested USD references or payloads, and changes preserving file metadata may require an explicit reload. Some animated USD assets still fail on initial loading.
+- Windows artifacts intentionally omit Authenticode; Windows may show an unknown-publisher or SmartScreen warning. Updater signature verification remains required.
+- macOS distribution remains postponed.
+
+### Distribution verification
+
+#### Windows signing and SmartScreen
+
+- Status: not verified
+- Details: Authenticode is intentionally omitted. Clean-environment SmartScreen behavior has not been verified for v0.4.1.
+
+#### macOS codesign, notarization, and Gatekeeper
+
+- Status: not verified
+- Details: v0.4.1 targets Windows only; no macOS artifact or signing validation is included.
+
+#### GitHub Release install and updater roundtrip
+
+- Status: not verified
+- Details: This entry prepares the stable release candidate. Published installer signatures, digests, public mirror, anonymous feed retrieval, bilingual history publication, clean installation, and actual update/restart/settings retention must be checked after publication. Previous beta distribution checks do not verify this candidate.
+
+## v0.4.1-beta.3 (2026-10-03)
+
+### Public update summary
+
+```json
+{
+  "ja": [
+    "タブを切り替えてもモデルとUSDの読み込みを保持し、読み込み途中のタブへ戻れるように改善。",
+    "ファイル一覧・履歴の右クリックからタブや新しいウィンドウを選択でき、開いているタブの分離とテキスト・パスのコピーに対応。",
+    "オブジェクトの表示切り替え、選択判定、右ドラッグによるカメラ操作を改善。FBXのDDSテクスチャの向きとBVHの位置チャンネルを修正。",
+    "Windows x64向けの支援版βです。有効なトークンが必要で、トークンを削除してもインストール済みのβ版は安定版へ戻りません。"
+  ],
+  "en": [
+    "Retain models and USD loading across tab switches, including returning to tabs while loading is still in progress.",
+    "Open files from list and history context menus in a tab or a new window, detach existing tabs, and copy text and paths.",
+    "Improved object visibility controls, picking, and right-drag camera navigation. Fixed FBX DDS texture orientation and BVH position channels.",
+    "This supporter beta targets Windows x64 and requires a valid token. Removing the token does not downgrade an installed beta to stable."
+  ]
+}
+```
+
+### Files, tabs, and startup
+
+- Keep model resources and pending USD loads alive across tab switches, restore tab state without duplicate loading, and retain the previous display after an additional payload fails.
+- Use list and history clicks to replace the current asset. Context menus can explicitly open a tab or a new window, and tabs can be detached after a successful process launch.
+- Route tab-bar and Ctrl drops to a new tab, preserve existing-tab selection, and show the intended drop destination.
+- Route Windows external opens to the running application when opening in tabs is enabled; explicit new-window requests remain separate.
+- Overlap startup preparation and defer unused image lighting work.
+- Add context-menu text editing and copying for names, paths, and displayed values.
+
+### Viewing and formats
+
+- Add per-object visibility controls in the outliner and improve GPU picking and selection of multi-material and MMD meshes.
+- Share equivalent MMD body/outline geometry layouts while preserving source geometry ownership. Different material-group indices remain separate.
+- Use pointer capture for right-drag fly-camera navigation and release navigation on focus loss.
+- Correct FBX DDS texture orientation and native texture previews, and allow more time for native FBX conversion.
+- Align BVH position-channel handling with Blender and show MMD comment fields.
+
+### Development and release operations
+
+- Add an isolated Windows Dev application with a distinct icon and local refresh command; Dev builds cannot install distributed updates.
+- Prepare verified beta-feed delivery and bilingual public update-history publication after the release is published.
+
+### Known limitations
+
+- A valid supporter token is required. This prerelease is not mirrored to the public stable channel.
+- Removing a token changes future update checks but does not downgrade an installed beta. A beta-to-stable installation roundtrip remains unverified.
+- Native OS drag delivery and Ctrl detection have not been demonstrated end to end; injected-event checks are not equivalent to an OS drag.
+- Nested USD dependency edits may require an explicit reload. Some animated USD assets still fail on initial loading.
+- Windows artifacts omit Authenticode; Windows may show an unknown-publisher or SmartScreen warning. Updater signature verification remains required.
+- macOS distribution remains postponed.
+
+### Distribution verification
+
+#### Windows signing and SmartScreen
+
+- Status: not verified
+- Details: Authenticode is intentionally omitted. Clean-environment SmartScreen behavior has not been verified for this beta.
+
+#### macOS codesign, notarization, and Gatekeeper
+
+- Status: not verified
+- Details: This beta targets Windows only; no macOS artifact or signing validation is included.
+
+#### GitHub Release install and updater roundtrip
+
+- Status: not verified
+- Details: This entry prepares a release PR. Signed installer delivery, automatic public update-history publication, installation, restart, and settings retention must be verified after publication.
+
+## v0.4.1-beta.2 (2026-09-27)
+
+### Public update summary
+
+```json
+{
+  "ja": [
+    "閉じるボタンでアプリが終了しない問題を修正。表示設定の保持と、履歴・β版トークン・ローダーパックを残す設定リセットを追加。",
+    "画像の表示・投影コントロールを整理し、統計表示をオーバーレイメニューへ移動。",
+    "アンビエントオクルージョンをGTAOへ変更し、既定ではOFFに設定。USDのst0テクスチャ座標に対応。",
+    "Windows x64向けに、有効な支援版トークンを使ってアプリ内から取得できます。トークンの削除だけでは、インストール済みのβ版は安定版へ戻りません。"
+  ],
+  "en": [
+    "Fixed the close button leaving the app open. Added retained display settings and a settings reset that preserves history, beta tokens, and loader packs.",
+    "Reorganized image display and projection controls and moved asset statistics to the overlays menu.",
+    "Switched ambient occlusion to GTAO, off by default, and added support for USD st0 texture coordinates.",
+    "Available in the Windows x64 app with a valid supporter token. Removing the token does not downgrade an installed beta to stable."
+  ]
+}
+```
+
+### Settings and window controls
+
+- Fixed the close button leaving the application open. Pending display preferences are saved before closing, with retry after a save failure.
+- Added retained viewport settings and a settings reset action that preserves recent-file history, beta tokens, and installed loader packs.
+- Prevented manual file opens from racing with startup settings restoration.
+- Simplified the beta title, added external-link icons to support buttons, and improved confirmation dialog spacing and close controls.
+
+### Images and rendering
+
+- Combined image display and projection controls, removed redundant zoom presets and the pixel-grid option, and added inline slider resets.
+- Moved asset statistics into the overlays menu as a single display toggle and kept the UV grid always visible during UV inspection.
+- Switched ambient occlusion to GTAO, disabled it by default, and preserved transparent surfaces, wireframes, and helper rendering.
+- Added support for USD assets that name their primary texture coordinates `st0`, including indexed UVs.
+
+### Known limitations
+
+- A valid beta token is required for the supporter update feed. This prerelease remains in the private repository and is not mirrored to the public stable channel.
+- Removing a token changes future update checks but does not downgrade an installed beta.
+- Windows artifacts omit Authenticode; Windows may show an unknown-publisher or SmartScreen warning. Updater signature verification remains required.
+- macOS distribution remains postponed.
+
+### Distribution verification
+
+#### Windows signing and SmartScreen
+
+- Status: not verified
+- Details: Authenticode is intentionally omitted. Clean-environment SmartScreen behavior has not been verified for this beta.
+
+#### macOS codesign, notarization, and Gatekeeper
+
+- Status: not verified
+- Details: This beta targets Windows only; no macOS artifact or signing validation is included.
+
+#### GitHub Release install and updater roundtrip
+
+- Status: not verified
+- Details: The signed beta installer and token-gated delivery must be verified after publication. Installing, restarting, and retaining settings through the published updater remain unverified.
+
+## v0.4.1-beta.1 (2026-09-25)
+
+### Public update summary
+
+```json
+{
+  "ja": [
+    "有効な支援版トークンを設定すると、Windows x64 アプリ内でβ版の更新を確認できます。",
+    "設定に公式サイト・ガイド・更新履歴・不具合報告へのリンクを追加。",
+    "環境マップの選択をドロップダウンに変更し、AOの前景への重なりとEXRの上下反転を修正。",
+    "β版は非公開リポジトリで配信します。公開GitHubリリースからはダウンロードできません。"
+  ],
+  "en": [
+    "Save a valid supporter token to check for this Windows x64 beta in the app.",
+    "Added website, guide, update history, and bug report links to Settings.",
+    "Changed environment map selection to a dropdown and fixed foreground AO overlap and upside-down EXR previews.",
+    "The beta is delivered through a private repository and is unavailable from public GitHub releases."
+  ]
+}
+```
+
+### Updates and support
+
+- First Windows x64 supporter beta candidate. Existing app installations can check the beta feed after saving a valid supporter token in Settings.
+- Added links to the official website, user guide, update history, and bug report page in Settings.
+- Prepared a bilingual update history page for stable and supporter beta releases.
+
+### Images and rendering
+
+- Changed environment map selection to a dropdown in the lighting controls.
+- Prevented ambient occlusion from darkening transparent and cutout foreground surfaces with occlusion from meshes behind them.
+- Fixed upside-down OpenEXR image previews.
+
+### Known limitations
+
+- A supporter token is required to download the beta installer. The beta release is hosted in the private development repository and is not mirrored to the public release repository.
+- Returning from an installed beta to stable requires a separately verified reinstall procedure; removing a token only changes future update checks.
+- Windows artifacts intentionally omit Authenticode, so Windows may show an unknown-publisher or SmartScreen warning. Updater signature verification remains required.
+- macOS distribution remains postponed.
+
+### Distribution verification
+
+#### Windows signing and SmartScreen
+
+- Status: not verified
+- Details: Authenticode is intentionally omitted. Clean-environment SmartScreen behavior has not been verified for this beta.
+
+#### macOS codesign, notarization, and Gatekeeper
+
+- Status: not verified
+- Details: This beta targets Windows only; no macOS artifact or signing validation is included.
+
+#### GitHub Release install and updater roundtrip
+
+- Status: not verified
+- Details: The signed beta release, token-gated download, and installed-app update roundtrip must be checked after publication.
+
 ## v0.4.0 (2026-09-24)
 
 ### Asset tabs and inspection
@@ -22,7 +277,7 @@
 ### Updates and release infrastructure
 
 - Added a saved beta token field for a separately configured supporter update feed. The feed is provisioned, while a beta release and end-to-end delivery verification remain pending; this release does not announce beta access for sale.
-- Restricted the supporter download endpoint to installers from the selected release.
+- Added source-side limits so supporter downloads serve only installers from the selected release. The deployed Worker still needs this change and a live rejection check.
 - Added stable-release mirroring from the private development repository to the public distribution repository, including updater assets and changelog synchronization.
 - Isolated native verification profiles and cleanup so test runs do not modify normal application settings, recent files, or file associations.
 - Prepared bilingual product pages and guides; website publication is tracked separately from the desktop release.
